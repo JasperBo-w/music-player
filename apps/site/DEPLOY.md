@@ -1,4 +1,4 @@
-# 部署手册 · Cloudflare Pages + R2
+﻿# 部署手册 · Cloudflare Pages + R2
 
 从零开始把下载页跑起来，按顺序做就行。全程在 Cloudflare 免费额度内。
 
@@ -250,6 +250,44 @@ curl -I https://你的域名/site.config.json
 
 ---
 
+## 没有网络怎么办（或 GitHub 一直超时）
+
+打包需要从 GitHub 拉 electron 二进制，约 150 MB。国内直连常失败，而且报错会
+伪装成 `app-builder.exe process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`
+（下载是 app-builder 干的活）。三条路，按推荐顺序：
+
+### 1. 用镜像（首选）
+
+```powershell
+powershell -File tools/setup-cn-mirrors.ps1 -Persist
+```
+
+写三个用户级环境变量，指向 npmmirror。打完包想还原就把它们删掉。
+
+### 2. 用本地已有的 Electron 缓存
+
+Electron 的二进制缓存在 `%LOCALAPPDATA%\electron\Cache\`。如果那里已经有一个
+**完整**的 `electron-v<版本>-win32-x64.zip`，把 `apps/desktop/package.json` 的
+electron 依赖改成那个版本，就不需要下载了：
+
+```powershell
+# 先看缓存里有什么版本
+Get-ChildItem "$env:LOCALAPPDATA\electron\Cache" -Filter 'electron-v*.zip' |
+  Format-Table Name, @{n='MB';e={[math]::Round($_.Length/1MB)}}
+```
+
+⚠️ 这等于**升级 Electron 大版本**（例如从 42 换到 44），必须实测：
+装完先跑 `dist\win-unpacked\MusicPlayer.exe`，确认界面、播放、粒子效果都正常，
+再决定是否发布。不要只看"打包成功"就发。
+
+⚠️ 缓存目录里那些 `*.part*` 文件是**失败下载的残渣**，不是可用的包，别拿它们顶。
+
+### 3. 挂代理
+
+配置 `HTTPS_PROXY` 环境变量后重跑，或者用能直连 GitHub 的网络环境打一次包，
+之后 `dist\win-unpacked` 可以整个拷到别的机器上用。
+
+---
 ## 常见问题
 
 **Q：为什么安装包不直接放 Pages 里？**

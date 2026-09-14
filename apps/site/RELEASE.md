@@ -1,4 +1,4 @@
-# 发布清单 · 下载页
+﻿# 发布清单 · 下载页
 
 每次发新版照着走一遍。前三项是必须的，后面的按情况。
 
@@ -20,6 +20,31 @@ npm run dist:dir
 ```
 
 > 首次 `dist` 会联网下载 NSIS 工具链和签名辅助程序，几百 MB，慢是正常的。
+
+### ⚠️ 国内网络：先确认下载源
+
+打包时 electron-builder 要从 GitHub Releases 拉 **electron 二进制（约 150 MB）**
+和 nsis / winCodeSign。国内直连经常超时，而且**失败会伪装成别的错**：
+
+```
+⨯ downloadArtifact ... electron-v42.11.3-win32-x64.zip
+  read tcp ...: connection attempt failed ... connected host has failed to respond
+
+app-builder.exe process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE
+```
+
+第二条是第一条的下游表现 —— 下载正是 app-builder 干的活，下载失败它就非零
+退出。看起来像"可执行文件坏了"，实际是网络问题。排查时先看日志里有没有
+`downloadArtifact` / `read tcp` / `connection attempt failed`。
+
+`build-installer.ps1` 默认已经指向 npmmirror 镜像，不用手动配。想让所有终端
+都生效：
+
+```powershell
+powershell -File tools/setup-cn-mirrors.ps1 -Persist
+```
+
+镜像也不通的话，见 `apps/site/DEPLOY.md` 里"没有网络怎么办"一节。
 
 ### 不用启动就能做的自检
 

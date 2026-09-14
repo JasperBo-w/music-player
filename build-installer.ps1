@@ -53,7 +53,29 @@ if (-not (Test-Path (Join-Path $desktop 'main.js'))) {
 $npmExe = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
 if (-not $npmExe) { $npmExe = (Get-Command npm -ErrorAction SilentlyContinue).Source }
 
+# ---- 0. 镜像 ----
+# electron-builder 要从 GitHub Releases 下载 electron 二进制（约 150 MB）和
+# nsis / winCodeSign。国内直连经常超时，失败时会伪装成
+#   app-builder.exe process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE
+# 因为下载正是 app-builder 干的活，下载失败它就非零退出。
+# 所以默认就指到 npmmirror，不去赌网络。
+if (-not $env:ELECTRON_MIRROR) {
+  $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+}
+if (-not $env:ELECTRON_BUILDER_BINARIES_MIRROR) {
+  $env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/'
+}
+if (-not $env:npm_config_registry) {
+  $env:npm_config_registry = 'https://registry.npmmirror.com'
+}
+
 if (-not $CheckOnly) {
+  Write-Host ''
+  Write-Host '== 下载源' -ForegroundColor Cyan
+  Write-Host "   electron        : $env:ELECTRON_MIRROR"
+  Write-Host "   builder 工具链  : $env:ELECTRON_BUILDER_BINARIES_MIRROR"
+  Write-Host '   （要改回官方源，清掉这三个环境变量即可）' -ForegroundColor DarkGray
+
   # ---- 1. 依赖 ----
   Step '检查依赖'
 
@@ -166,11 +188,16 @@ if (-not $CheckOnly) {
     }
     Write-Line '   -----------------------' -ForegroundColor Yellow
     Write-Line ''
-    Write-Line '   常见原因：'
-    Write-Line '     · app-builder.exe 无法执行 —— 先跑 tools\diagnose-appbuilder.ps1，'
-    Write-Line '       或直接用兜底模式：build-installer.bat -NoAppBuilder'
-    Write-Line '     · 杀毒软件锁住了 dist 目录 —— 关掉实时防护再试'
-    Write-Line '     · NSIS 工具链下载失败 —— 多试一次，或换个网络'
+    Write-Line '   按出现概率排序的常见原因：'
+    Write-Line '     1. 下载 electron 二进制失败（约 150 MB，国内直连 GitHub 常超时）'
+    Write-Line '        日志里找 downloadArtifact / read tcp / connection attempt failed 字样。'
+    Write-Line '        本脚本默认已指向 npmmirror 镜像；仍失败就试：'
+    Write-Line '           powershell -File tools\setup-cn-mirrors.ps1 -Persist'
+    Write-Line '        或者挂代理后重跑。'
+    Write-Line '     2. app-builder.exe 真的无法执行（较少见，且常是上面那条的下游表现）'
+    Write-Line '        验证：powershell -File tools\diagnose-appbuilder.ps1'
+    Write-Line '        绕过：build-installer.bat -NoAppBuilder'
+    Write-Line '     3. 杀毒软件锁住了 dist 目录 —— 关掉实时防护再试'
     Write-Line ''
     Write-Line '   想看详细报错：'
     Write-Line '       build-installer.bat -VerboseLog'
