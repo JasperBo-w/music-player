@@ -1,0 +1,24 @@
+{
+  "metric": "cadence",
+  "cadenceFrames": 500,
+  "rounds": 2,
+  "reload": true,
+  "configs": [
+    {
+      "name": "① scale 1.00",
+      "setup": "window.__mpLayers({particles:true,cover:true}); window.__mpSet({bloom:true,bloomStrength:0.6}); window.__mpSet({renderScale:1.0}); 'set 1.0'"
+    },
+    {
+      "name": "② scale 0.60",
+      "setup": "window.__mpSet({renderScale:0.6}); 'set 0.6'"
+    },
+    {
+      "name": "③ scale 0.60 + 关泛光 + 关两层",
+      "setup": "window.__mpSet({bloom:false}); window.__mpLayers({particles:false,cover:false}).then(r=>JSON.stringify(r.actual)+' ok='+r.ok)"
+    },
+    {
+      "name": "④ 恢复 scale1.0 全开",
+      "setup": "window.__mpSet({renderScale:1.0}); window.__mpSet({bloom:true,bloomStrength:0.6}); window.__mpLayers({particles:true,cover:true}).then(r=>JSON.stringify(r.actual)+' ok='+r.ok)"
+    }
+  ]
+}

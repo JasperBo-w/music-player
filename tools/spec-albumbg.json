@@ -1,0 +1,15 @@
+{
+  "rounds": 2,
+  "settleMs": 18000,
+  "reload": true,
+  "configs": [
+    {
+      "name": "A 专辑氛围背景 开",
+      "setup": "document.querySelectorAll('#album-bg,#album-bg-next').forEach(e=>{e.style.transition='';e.style.opacity='';}); 'opacity=' + (document.querySelector('#album-bg') ? getComputedStyle(document.querySelector('#album-bg')).opacity : '无此元素')"
+    },
+    {
+      "name": "B 专辑氛围背景 关",
+      "setup": "window.__mpBgOff() + ' | opacity=' + (document.querySelector('#album-bg') ? getComputedStyle(document.querySelector('#album-bg')).opacity : '无此元素')"
+    }
+  ]
+}

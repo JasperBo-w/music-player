@@ -1,0 +1,62 @@
+# ============================================================================
+#  不上传的东西 —— 每一条都有理由
+# ============================================================================
+
+# ---- 凭据：绝对不能进版本库 ----
+# .session.json 里是酷狗账号的登录态（userid / token / cookie）。
+# 一旦推上公开仓库，等于把账号送人 —— 而且它会留在 git 历史里，
+# 事后删文件也没用，必须撤回密钥。
+.session.json
+**/.session.json
+*session*.json
+!packages/core/src/session-store.js
+.env
+.env.*
+*.pem
+*.key
+
+# ---- 第三方项目：许可 + 体积 ----
+# reference/ 里是 Mineradio（GPL-3.0）、KuGouMusicApi、NeteaseCloudMusicApi。
+# 我们只是**读它们来理解做法**，不是 fork，代码一行都没抄。
+# 把它们推进自己的仓库既没必要，也会带来许可上的麻烦。
+reference/
+
+# ---- 工具链 / 依赖：体积巨大且可再生 ----
+node_modules/
+.toolchain/
+.npm-cache/
+*.tgz
+
+# ---- 调试产物：没有价值，且可能带路径/账号信息 ----
+.logs/
+.repl/
+.probe/
+.tmpcheck/
+.dsh/
+*.log
+
+# ---- 截图：近 200MB，且都是过程中的临时产物 ----
+.shots*/
+*.png
+!apps/ui/**/*.png
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---- 构建产物 ----
+dist/
+out/
+build/
+release/
+
+# ---- �༭�����еĲ��� ----
+*.broken
+*.bak
+*.old
+*.tmp

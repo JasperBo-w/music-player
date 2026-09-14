@@ -1,0 +1,24 @@
+{
+  "metric": "cadence",
+  "cadenceFrames": 500,
+  "rounds": 2,
+  "reload": true,
+  "configs": [
+    {
+      "name": "① 全开 scale1.0",
+      "setup": "window.__mpSkipRender(false); window.__mpLayers({particles:true,cover:true}); window.__mpSet({bloom:true,bloomStrength:0.6}); window.__mpSet({renderScale:1.0}); 'full'"
+    },
+    {
+      "name": "② 出图但两层全关",
+      "setup": "window.__mpLayers({particles:false,cover:false}).then(r=>JSON.stringify(r.actual)+' ok='+r.ok)"
+    },
+    {
+      "name": "③ 完全不出图(skipRender)",
+      "setup": "window.__mpSkipRender(true) + ' skipRender=' + window.__mpJank().scale"
+    },
+    {
+      "name": "④ 恢复全开出图",
+      "setup": "window.__mpSkipRender(false); window.__mpLayers({particles:true,cover:true}).then(r=>JSON.stringify(r.actual)+' ok='+r.ok)"
+    }
+  ]
+}

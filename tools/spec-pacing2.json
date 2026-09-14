@@ -1,0 +1,16 @@
+{
+  "metric": "jank",
+  "settleMs": 22000,
+  "rounds": 3,
+  "reload": true,
+  "configs": [
+    {
+      "name": "A 不限帧(maxFps=0)",
+      "setup": "window.__mpSkipRender(false); window.__mpLayers({particles:true,cover:true}); window.__mpSet({bloom:true,bloomStrength:0.6}); window.__mpSet({renderScale:1.0}); window.__mpSet({maxFps:0}); 'maxFps=0'"
+    },
+    {
+      "name": "B 锁半刷新(maxFps=82)",
+      "setup": "window.__mpSet({maxFps:82}); 'maxFps=82'"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@dsh/music-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "界面层：桌面端与手机端共用（Vite + TypeScript + Three.js）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@dsh/music-core": "file:../../packages/core",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-node-polyfills": "^0.22.0"
+  }
+}

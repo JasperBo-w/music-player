@@ -1,0 +1,324 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <title>音乐播放器</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+  <!--
+    背景分层（从下到上）：
+      0. #album-bg / #album-bg-next  专辑封面氛围背景，双层交叉淡入
+      1. #bg                          粒子画布
+      2. #scrim                       文字可读性压暗
+      3. #app                         玻璃界面
+    分层做法参考 Mineradio（它更复杂，还叠了 Wallpaper Engine 层）。
+  -->
+  <div id="album-bg"></div>
+  <div id="album-bg-next"></div>
+  <canvas id="bg"></canvas>
+  <div id="scrim-layer"></div>
+
+  <!-- 无边框窗口的拖拽条与窗口按钮 -->
+  <div id="titlebar">
+    <div class="win-controls">
+      <button id="win-min" title="最小化">—</button>
+      <button id="win-max" title="最大化 / 还原">▢</button>
+      <button id="win-close" class="close" title="关闭">✕</button>
+    </div>
+  </div>
+
+  <!-- 侧栏折叠开关（放在标题栏左侧，和窗口按钮同一行） -->
+  <button id="btn-sidebar" type="button" title="收起 / 展开侧栏">☰</button>
+
+  <!-- 这两个是"唤出条"：隐藏状态下鼠标碰到边缘就把对应区域放出来 -->
+  <div id="side-reveal"></div>
+  <div id="playerbar-reveal"></div>
+
+  <!-- 沉浸模式开关 -->
+  <button id="btn-immersive" type="button" title="沉浸模式（只看粒子，Esc 退出）">◱</button>
+
+  <div id="app">
+    <aside id="sidebar">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <span class="brand-name">音乐播放器</span>
+      </div>
+      <nav id="nav">
+        <button data-view="home" class="active">首页</button>
+        <button data-view="search">搜索</button>
+        <button data-view="history">最近播放</button>
+        <button data-view="playlists">我的歌单</button>
+        <button data-view="nowplaying">正在播放</button>
+      </nav>
+      <button id="btn-settings" class="nav-action"><span class="nav-action-icon">⚙</span> 设置</button>
+      <div id="account"></div>
+    </aside>
+
+    <!-- 回到顶部：滚动超过一屏才出现，固定在主内容区右下角 -->
+    <button id="to-top" class="to-top" type="button" title="回到顶部" aria-label="回到顶部">↑</button>
+
+    <main id="main">
+
+      <!-- ================= 首页仪表盘 =================
+           原来有「每日推荐」和「排行榜」两块，都删掉了：
+             · 每日推荐 一直显示"需登录"，实际拿不到内容
+             · 排行榜 是"看榜"用的，而这里的用户是来听自己歌的
+           换成三块真正用得上的：接着听 / 最近播放 / 我的歌单。 -->
+      <section id="view-home" class="view active">
+        <div class="home-hero">
+          <div class="home-hero-copy">
+            <div class="home-kicker" id="home-kicker">欢迎回来</div>
+            <h1 class="home-title" id="home-title">开始听歌</h1>
+            <div class="home-sub" id="home-sub">从最近播放或我的歌单里挑一首</div>
+            <div class="home-actions">
+              <button id="home-fm" class="home-fm" type="button">▶ 私人 FM</button>
+              <button id="home-resume" class="home-resume" type="button" hidden>继续播放</button>
+            </div>
+          </div>
+          <div class="home-metrics" id="home-metrics"></div>
+        </div>
+
+        <div class="home-tiles" id="home-tiles">
+          <button class="home-tile" data-go="playlists">
+            <span class="home-tile-icon">☰</span>
+            <span class="home-tile-label">我的歌单</span>
+            <span class="home-tile-sub" id="tile-playlists">—</span>
+          </button>
+          <button class="home-tile" data-go="search">
+            <span class="home-tile-icon">⌕</span>
+            <span class="home-tile-label">搜索</span>
+            <span class="home-tile-sub">找歌、歌手</span>
+          </button>
+          <button class="home-tile" data-go="history">
+            <span class="home-tile-icon">↺</span>
+            <span class="home-tile-label">最近播放</span>
+            <span class="home-tile-sub" id="tile-history">—</span>
+          </button>
+          <button class="home-tile" data-go="nowplaying">
+            <span class="home-tile-icon">♪</span>
+            <span class="home-tile-label">正在播放</span>
+            <span class="home-tile-sub">看歌词和封面</span>
+          </button>
+        </div>
+
+        <div class="home-block">
+          <div class="home-block-head">
+            <h2>最近播放</h2>
+            <button class="home-more" data-go="history" type="button">全部 ›</button>
+          </div>
+          <div id="home-recent" class="list"></div>
+        </div>
+
+        <div class="home-block">
+          <div class="home-block-head">
+            <h2>我的歌单</h2>
+            <button class="home-more" data-go="playlists" type="button">全部 ›</button>
+          </div>
+          <div id="home-playlists" class="home-pl-strip"></div>
+        </div>
+      </section>
+
+      <!-- ================= 搜索 ================= -->
+      <section id="view-search" class="view">
+        <div class="searchbar">
+          <input id="q" type="search" placeholder="搜索歌曲、歌手…" autocomplete="off" />
+          <button id="go">搜索</button>
+        </div>
+        <div id="search-title" class="block-title"></div>
+        <div id="search-result" class="list"></div>
+      </section>
+
+      <!-- ================= 我的歌单 ================= -->
+      <section id="view-playlists" class="view">
+        <h2>我的歌单</h2>
+        <div id="playlist-grid" class="grid"></div>
+      </section>
+
+      <!-- ================= 歌单详情 =================
+           单独一个视图，不再借用「搜索」那一页。
+           之前点开歌单会 switchView('search') 并把曲目渲染进 #search-result，
+           结果是：左边导航高亮跳到「搜索」、搜索框里还留着上一次的关键词，
+           看起来就像"点歌单跑到了搜索页"。 -->
+
+      <!-- ================= 歌手详情 ================= -->
+      <section id="view-artist" class="view">
+        <div class="pl-head">
+          <button id="ar-back" class="pl-back" type="button" title="返回">‹ 返回</button>
+          <h2 id="ar-title">歌手</h2>
+          <span id="ar-count" class="pl-count"></span>
+        </div>
+        <div id="ar-meta" class="detail-meta"></div>
+        <div id="ar-tracks" class="list"></div>
+      </section>
+
+      <!-- ================= 专辑详情 ================= -->
+      <section id="view-album" class="view">
+        <div class="pl-head">
+          <button id="al-back" class="pl-back" type="button" title="返回">‹ 返回</button>
+          <h2 id="al-title">专辑</h2>
+          <span id="al-count" class="pl-count"></span>
+        </div>
+        <div id="al-meta" class="detail-meta"></div>
+        <div id="al-tracks" class="list"></div>
+      </section>
+
+      <section id="view-playlist" class="view">
+        <div class="pl-head">
+          <button id="pl-back" class="pl-back" type="button" title="返回我的歌单">‹ 返回</button>
+          <h2 id="pl-title">歌单</h2>
+          <span id="pl-count" class="pl-count"></span>
+        </div>
+        <div id="pl-tracks" class="list"></div>
+      </section>
+
+      <!-- ================= 最近播放 ================= -->
+      <section id="view-history" class="view">
+        <h2>最近播放</h2>
+        <div id="history-list" class="list"></div>
+      </section>
+
+      <!-- ================= 正在播放 =================
+           封面粒子已经并进全局粒子场景、显示在视口正中，
+           所以这里的信息面板靠右排，中间留空给封面。 -->
+      <section id="view-nowplaying" class="view">
+        <div class="np">
+          <!--
+            封面由粒子层绘制（见 particles.js 的 setCoverFromCanvas），
+            显示在视口偏左的位置，所以这里的信息面板靠右排、中间留空。
+            曾经试过在这里放一张真正的封面图，用户明确否决：一张写实图片
+            贴在粒子氛围里气质是割裂的，反而更难看。所以方向是把粒子封面做好。
+          -->
+          <div class="np-info">
+            <h2 id="np-title">未播放</h2>
+            <div id="np-artist" class="np-artist">—</div>
+
+            <div id="np-lyric" class="lyric-box"></div>
+
+            <!-- 歌词时间轴微调（学自 Mineradio 的 #lyric-timing-control） -->
+            <div class="timing-row" id="timing-row">
+              <span class="timing-label">歌词轴</span>
+              <button class="timing-btn" data-delta="-0.5" title="歌词提前 0.5 秒">−0.5s</button>
+              <button class="timing-btn" data-delta="-0.1" title="歌词提前 0.1 秒">−0.1s</button>
+              <span class="timing-value" id="timing-value">0.0s</span>
+              <button class="timing-btn" data-delta="0.1" title="歌词延后 0.1 秒">+0.1s</button>
+              <button class="timing-btn" data-delta="0.5" title="歌词延后 0.5 秒">+0.5s</button>
+              <button class="timing-btn reset" id="timing-reset" title="恢复默认">重置</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ================= 底部播放条 ================= -->
+    <footer id="playerbar">
+      <div class="pb-cover" id="pb-cover"></div>
+
+      <div class="pb-meta">
+        <div class="pb-title" id="pb-title">未播放</div>
+        <div class="pb-artist" id="pb-artist">—</div>
+      </div>
+
+      <div class="pb-controls">
+        <button id="pb-mode" title="播放模式 (Alt+L)">⇄</button>
+        <button id="pb-prev" title="上一首 (Ctrl+←)">⏮</button>
+        <button id="pb-back" class="pb-seek" title="快退 5 秒 (←)">⟲</button>
+        <button id="pb-toggle" title="播放 / 暂停 (空格)">▶</button>
+        <button id="pb-fwd" class="pb-seek" title="快进 5 秒 (→)">⟳</button>
+        <button id="pb-next" title="下一首 (Ctrl+→)">⏭</button>
+        <button id="pb-like" class="like-btn" title="喜欢 (Alt+F)">♡</button>
+      </div>
+
+      <div class="pb-progress">
+        <span id="pb-cur">0:00</span>
+        <input id="pb-seek" type="range" min="0" max="1000" value="0" />
+        <span id="pb-dur">0:00</span>
+      </div>
+
+      <!-- 音量 + 帧率 + 音质 + 队列 -->
+      <div class="pb-extra">
+        <div class="pb-volume">
+          <button id="vol-btn" class="chip-icon" title="静音 (M)">🔊</button>
+          <input id="vol" type="range" min="0" max="100" step="1" value="100" title="音量 (↑ / ↓)" />
+          <span id="vol-value" class="vol-value">100</span>
+        </div>
+
+        <span id="fps-chip" class="fps-chip" title="实时帧率">-- FPS</span>
+
+        <div class="chip-wrap">
+          <button id="quality-chip" class="chip" title="播放音质">
+            <span id="quality-label">标准</span>
+          </button>
+          <div id="quality-menu" class="chip-menu">
+            <button data-q="128">标准 <em>128k</em></button>
+            <button data-q="320">较高 <em>320k</em></button>
+            <button data-q="flac">无损 <em>FLAC</em></button>
+          </div>
+        </div>
+
+        <button id="lyric-chip" class="chip" title="桌面歌词（独立置顶窗口）">词</button>
+        <button id="fl-chip" class="chip" title="全屏歌词（Esc 退出）">全</button>
+        <div class="chip-wrap">
+          <button id="speed-chip" class="chip" title="播放速度">
+            <span id="speed-label">1.0×</span>
+          </button>
+          <div id="speed-menu" class="chip-menu">
+            <button data-speed="0.5">0.5×</button>
+            <button data-speed="0.75">0.75×</button>
+            <button data-speed="1">1.0× <em>正常</em></button>
+            <button data-speed="1.25">1.25×</button>
+            <button data-speed="1.5">1.5×</button>
+            <button data-speed="2">2.0×</button>
+          </div>
+        </div>
+
+        <div class="chip-wrap">
+          <button id="queue-chip" class="chip" title="播放队列">
+            <span id="queue-count">0</span>
+          </button>
+          <div id="queue-popover" class="mini-queue">
+            <div class="mini-queue-head">
+              <span>播放队列</span>
+              <button id="queue-clear" class="mini-queue-clear" title="清空">清空</button>
+            </div>
+            <div id="queue-list" class="mini-queue-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <audio id="audio" crossorigin="anonymous"></audio>
+    </footer>
+  </div>
+
+  <div id="toast"></div>
+
+  <!--
+    不用打包器，所以用 import map 把裸模块名 "three" 指到本地文件。
+    three.module.js 是从 node_modules/three/build/ 复制过来的。
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="./src/main.js"></script>
+
+      <!-- ================= 全屏歌词 ================= -->
+      <!-- 盖住整个窗口。它不是普通视图，而是一个"专注模式"：
+           只显示歌词，别的一概不出现。 -->
+      <section id="view-lyrics" class="view view-lyrics">
+        <button id="fl-close" class="fl-close" type="button" title="退出全屏歌词 (Esc)">✕</button>
+        <div id="fl-head" class="fl-head">
+          <div class="fl-title"></div>
+          <div class="fl-artist"></div>
+        </div>
+        <div id="fl-lines" class="fl-lines"></div>
+      </section>
+
+</body>
+</html>

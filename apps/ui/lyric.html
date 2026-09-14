@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>桌面歌词</title>
+    <style>
+      /*
+       * 桌面歌词：独立置顶透明窗口。
+       *
+       * ★ 效果学自 Mineradio（public/desktop-lyrics.html）。它的"灵动感"
+       *   来自三件会动的东西 —— 我原来只做了静态样式，所以看着像一张贴图：
+       *
+       *   ① 入场：新的一行不是硬切，而是**从远处翻进来**
+       *      （translate3d + rotateX/rotateY + scale + blur）
+       *   ② 呼吸：整行随节拍轻微缩放、辉光随之涨落
+       *   ③ 流光：文字周围有星点向外流动，鼓点越强越多
+       *
+       * 层次安排（很重要）：
+       *   .glow  —— 持有辉光 filter 和"呼吸"的 transform
+       *   #main  —— 持有渐变擦除的填充 + "入场"的 transform/blur
+       * 分两层是因为 CSS 动画里的 filter/transform 会**整体覆盖**同名属性：
+       * 入场动画带 filter:blur()，若和辉光的 drop-shadow 写在同一个元素上，
+       * 动画一跑辉光就没了。分开之后各管各的。
+       */
+      :root {
+        --lyric-primary: #f6fdff;
+        --lyric-highlight: #fff0b8;
+        --lyric-glow: rgba(255, 255, 255, 0.38);
+        --lyric-glow-hot: rgba(255, 255, 255, 0.95);
+        --lyric-progress: 0%;
+        --lyric-feather: 6%;
+        --lyric-glow-k: 1;
+        --lyric-scale: 1;
+        --lyric-edge: 60px;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        user-select: none;
+        font-family: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      }
+
+      /* 整窗不接收事件 —— 交互只发生在文字那块 */
+      #wrap {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .stage {
+        position: absolute;
+        inset: 0;
+        /*
+         * ★ 这里只负责**居中**，不承担位置偏移 —— 偏移在 .positioner 上。
+         * 两层分开各司其职。
+         *（我第一版把偏移加在这里，等于"居中之后再偏移一次"，
+         *  默认值 404,822 直接把文字推出了屏幕，用户看到的是"词在哪"。）
+         */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        /*
+         * ★ 这里**不能**用 -webkit-app-region: drag。
+         *
+         * 它会把整块变成"系统标题栏"：页面的 JS 收不到鼠标事件（中键就废了），
+         * 而且拖动时会出现系统那套拖拽反馈（看起来就是一圈边框）。
+         * 拖动改由下面的 JS 自己做（Mineradio 也是这么干的）。
+         */
+        cursor: move;
+        /* 入场用了 rotateX/rotateY，必须有透视才看得出立体 */
+        perspective: 900px;
+        transform-style: preserve-3d;
+      }
+
+
+/*
+       * 位置承载层。
+       *
+       * ★ 偏移是相对**屏幕中心**的：0,0 就是居中。
+       *
+       * 我第一版把偏移加在 .stage 上 —— 而 .stage 是铺满窗口、
+       * 又用 flex 把内容居中的容器，等于"在已经居中的基础上再偏移一次"
+       * （默认偏移 404,822 直接把文字推出屏幕，用户看到的是"词在哪"）。
+       *
+       * 现在单独一层：外层 .stage 只管居中，内层 .positioner 只管偏移，各司其职。
+       * translate3d 走 GPU 合成 —— 拖动时改它几乎不花钱，这是跟手的根本。
+       */
+      .positioner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        transform: translate3d(var(--lx, 0px), var(--ly, 0px), 0);
+        will-change: transform;
+      }
+
+      /* 流光粒子在最底层，不挡文字 */
+      /*
+       * ★ canvas **不要铺满屏幕**。
+       *
+       * 铺满时它是 1708×1068（×dpr 之后 2562×1602），每帧 clearRect
+       * 要清 410 万像素 —— 而窗口本身是全屏透明的，DWM 还要为它
+       * 每帧重新合成一次整屏大小的层。鼠标光标也走 DWM，于是光标跟着顿。
+       *
+       * 星点本来就只在文字附近流动，所以给它一块**够用的固定区域**即可：
+       * 1400×260，居中跟着文字走（放在 .positioner 里）。
+       */
+      #fx {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 1400px;
+        height: 260px;
+        margin: -130px 0 0 -700px;
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      /*
+       * 辉光层：**两层**链式 drop-shadow。
+       *
+       * 原来是四层（对应 Mineradio canvas 里 blur 10/24/48/78）。
+       * 但链式 drop-shadow 的每一层都要模糊**上一层的结果**，
+       * 四层就是四轮模糊、而且区域一轮比一轮大 ——
+       * 拖动时窗口每移动一次就重绘一次，这个开销直接变成手上的滞涩感。
+       *
+       * 降到两层之后重绘成本大约减半，观感差别很小
+       *（去掉的那两层原来只有 0.2 / 0.09 的透明度）。
+       * 这是"拖动跟手"和"辉光层次"之间一个划算的交换。
+       */
+      .glow {
+        position: relative;
+        z-index: 2;
+        filter: drop-shadow(0 1px 2.5px rgba(4, 6, 12, 0.72))
+          drop-shadow(0 0 calc(10px * var(--lyric-glow-k)) var(--lyric-glow));
+        /* 把重绘范围限制在这一块，别让整窗都进重绘 */
+        contain: layout style paint;
+        /* 呼吸：随节拍轻微缩放 */
+        transform: scale(var(--lyric-scale));
+        transition: transform 0.09s linear;
+        will-change: transform, filter;
+      }
+
+      /*
+       * ★ 曾经在这里做过"拖动中廉价模式"（拖动时把辉光降成一层）。
+       * 已删除：切换 filter 本身会触发一次整块重绘，而且视效上有明显跳变 ——
+       * 用户的原话是"拖的时候还会闪一下"。那个闪就是它造成的。
+       * 与其在拖动时切样式，不如把**常态**的成本降下来（见上面的 .glow）。
+       */
+
+      /*
+       * 极简模式：供基准对比用。
+       * 停掉 canvas、去掉辉光 filter —— 用来判断"移动窗口贵"到底是
+       * 窗口本身（透明+置顶）的问题，还是页面重绘的问题。
+       */
+      body.minimal #fx {
+        display: none;
+      }
+      body.minimal .glow {
+        filter: none !important;
+        contain: none;
+      }
+
+      #main {
+        padding: 0 40px;
+        max-width: calc(100vw - 24px);
+        font-size: 46px;
+        font-weight: 900;
+        line-height: 1.1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-align: center;
+        /*
+         * 渐变擦除：已唱用高亮色，--lyric-progress 处是边缘辉光，之后是常规色。
+         * 文字填充其实是透明的，看到的是这条渐变被裁进字形里的结果。
+         */
+        background: linear-gradient(
+          90deg,
+          var(--lyric-highlight) 0%,
+          var(--lyric-highlight) max(0%, calc(var(--lyric-progress) - var(--lyric-feather))),
+          var(--lyric-glow-hot) calc(var(--lyric-progress) + 1.2%),
+          var(--lyric-primary) calc(var(--lyric-progress) + var(--lyric-feather)),
+          var(--lyric-primary) 100%
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        color: transparent;
+        /* 两端渐隐，长句贴边是软过渡 */
+        -webkit-mask-image: linear-gradient(
+          90deg,
+          transparent 0,
+          #000 var(--lyric-edge),
+          #000 calc(100% - var(--lyric-edge)),
+          transparent 100%
+        );
+        mask-image: linear-gradient(
+          90deg,
+          transparent 0,
+          #000 var(--lyric-edge),
+          #000 calc(100% - var(--lyric-edge)),
+          transparent 100%
+        );
+        will-change: transform, opacity, filter;
+      }
+
+      /*
+       * ★ 入场：从远处翻进来。
+       * 抄 Mineradio 的 keyframes —— 起始在 z 轴 -110px、绕 X/Y 各转十几度、
+       * 缩到 0.8、还带 11px 模糊，然后归位。
+       * 所以新的一行是"从画面深处飞过来落定"的，这是"灵动感"最直接的一条。
+       */
+      @keyframes lyricIn {
+        0% {
+          opacity: 0;
+          transform: translate3d(0, 30px, -110px) rotateX(22deg) rotateY(-16deg) scale(0.8);
+          filter: blur(11px);
+        }
+        58% {
+          opacity: 1;
+          filter: blur(0);
+        }
+        100% {
+          opacity: 1;
+          transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) scale(1);
+          filter: blur(0);
+        }
+      }
+      #main.enter {
+        animation: lyricIn 0.62s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+      }
+
+      #next {
+        position: relative;
+        z-index: 2;
+        margin-top: 4px;
+        max-width: calc(100vw - 24px);
+        font-size: 16px;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        color: rgba(255, 255, 255, 0.6);
+        transition: opacity 0.3s;
+      }
+      #next:empty {
+        display: none;
+      }
+
+      /*
+       * 锁定提示。
+       *
+       * 上一版是 11px、45% 透明的小字贴在角落 —— 用户反馈"锁定没提示"，
+       * 那个确实等于没提示。改成居中的胶囊：有底色、有边框、够大，
+       * 而且明确写出**怎么解锁**（锁上之后鼠标点不到它，所以文案很重要）。
+       */
+      /*
+       * 锁定提示：**显示一下就自动消失**，不常驻。
+       *
+       * 原来是用 body.locked 控制常显 —— 锁上之后那行字一直挂在上面，
+       * 用户反馈"提示词还在"。它只在"状态刚变化"时需要出现，
+       * 目的是告诉用户"刚才那下生效了、以及怎么解锁"，
+       * 一直挂着反而挡住桌面。
+       *
+       * 所以改成 transient：由 JS 加 .show 类，两秒多后摘掉。
+       * 解锁也给一次短暂反馈 —— 否则用户按了中键不知道到底切没切。
+       */
+      #locked {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        top: 6px;
+        z-index: 3;
+        padding: 3px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.35s;
+        pointer-events: none;
+      }
+      #locked.show {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <div class="stage">
+        <canvas id="fx"></canvas>
+        <div class="positioner">
+          <div class="glow"><div id="main">桌面歌词</div></div>
+          <div id="next"></div>
+        </div>
+      </div>
+    </div>
+    <div id="locked">🔒 已锁定 · 再按一次中键解锁</div>
+
+    <script>
+      const root = document.documentElement;
+      const mainEl = document.getElementById('main');
+      const nextEl = document.getElementById('next');
+      const canvas = document.getElementById('fx');
+      const ctx = canvas.getContext('2d');
+
+      /* ---------------- 流光粒子 ---------------- */
+
+      /*
+       * 绕着文字向外流动的星点。
+       * 抄 Mineradio 的思路（drawParticles）：粒子按"道"分布，
+       * 每道有自己的相位和速度向两侧流出去，并用 sin(π*flow) 在两端淡出 ——
+       * 所以是"从文字里涌出来再消散"，不是排着队平移过去。
+       */
+      const SPARKS = 26;
+      const sparks = [];
+      for (let i = 0; i < SPARKS; i++) {
+        sparks.push({
+          lane: Math.random(),
+          phase: Math.random(),
+          speed: 0.02 + Math.random() * 0.03,
+          size: 0.7 + Math.random() * 1.6,
+        });
+      }
+      let sparkLevel = 0;
+      let glowColor = 'rgba(255,255,255,0.5)';
+
+      function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        // 用 canvas 自己的实际布局尺寸，而不是视口 —— 见上面 #fx 的说明
+        const w = canvas.clientWidth || 1400;
+        const h = canvas.clientHeight || 260;
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      let lastT = performance.now();
+      function frame(now) {
+        lastT = now;
+
+        /*
+         * ★ 安静时**什么都不做**：不清、不画、不碰 canvas。
+         *
+         * 这是"鼠标发顿"的根子 —— 原来无论有没有粒子，每帧都在
+         * clearRect 一整块大区域。而"没有粒子"本来就是常态
+         *（暂停、纯音乐、间奏），那种时候不该有任何绘制开销。
+         *
+         * 注意这里直接 return，**跳过了 clearRect**：
+         * 上一帧如果是空的，那这一帧也是空的，不需要清。
+         */
+        if (isDragging || sparkLevel <= 0.02) {
+          requestAnimationFrame(frame);
+          return;
+        }
+
+        const w = canvas.clientWidth || 1400;
+        const h = canvas.clientHeight || 260;
+        ctx.clearRect(0, 0, w, h);
+
+        {
+          let spanW = w * 0.3;
+          try {
+            const r = mainEl.getBoundingClientRect();
+            if (r.width > 10) spanW = r.width * 0.62;
+          } catch {}
+          const cy = h * 0.44;
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          for (const p of sparks) {
+            const flow = (p.phase + now * 0.00006 * p.speed * 100) % 1;
+            const edge = Math.sin(Math.PI * flow); // 两端淡出
+            const x = w / 2 + (flow - 0.5) * spanW * 2.2;
+            const y = cy + Math.sin(now * 0.0012 + p.lane * 9) * h * 0.2 * (1 - p.lane * 0.5);
+            ctx.globalAlpha = edge * sparkLevel * 0.9;
+            ctx.fillStyle = glowColor;
+            ctx.beginPath();
+            ctx.arc(x, y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      /* ---------------- 数据 ---------------- */
+
+      window.api.desktopLyric.onUpdate((payload) => {
+        const p = payload || {};
+        const text = p.text || (p.title ? p.title : '♪');
+
+        if (p.accent) {
+          root.style.setProperty('--lyric-highlight', p.accent);
+          glowColor = p.accent;
+          // 辉光用带透明度的版本，否则最外那层会糊成一片实色
+          root.style.setProperty('--lyric-glow', hexToRgba(p.accent, 0.38));
+          root.style.setProperty('--lyric-glow-hot', hexToRgba(p.accent, 0.95));
+        }
+
+        /*
+         * 换行时才重放入场动画 —— 判据是**文本本身**。
+         * 不能用渲染 key 判断：进度变化也会让 key 变，
+         * 那样每唱到一个字都会重放一次翻入，画面会一直抖。
+         */
+        if (mainEl.dataset.text !== text) {
+          mainEl.dataset.text = text;
+          mainEl.textContent = text;
+          /*
+           * ★ 拖动中**不播入场动画**。
+           *
+           * 入场是"从画面深处带着模糊翻进来"，静止时很好看；
+           * 但拖动时正好换行的话，那句文字会突然糊一下再飞进来 ——
+           * 用户看到的就是"拖的时候有时候会闪一下"。
+           *
+           * 用 isDragging 判断而不是切 class：切 class 本身也可能触发重绘。
+           */
+          if (!isDragging) {
+            mainEl.classList.remove('enter');
+            // 强制重排，否则连续两次加同一个类，动画不会重放
+            void mainEl.offsetWidth;
+            mainEl.classList.add('enter');
+          }
+          // 新行入场时把星点推起来一次，换行就有一次"涌出"
+          sparkLevel = Math.max(sparkLevel, 0.5);
+        }
+
+        if (nextEl.textContent !== (p.next || '')) nextEl.textContent = p.next || '';
+
+        // 进度：连续值优先（按时间插值），退回"已唱字数/总字数"
+        let prog = 1;
+        if (p.progress != null && p.progress >= 0) {
+          prog = Math.min(1, p.progress);
+        } else if (p.lit != null && p.lit >= 0) {
+          const total = Math.max(1, Array.from(text).length);
+          prog = Math.min(1, p.lit / total);
+        }
+        root.style.setProperty('--lyric-progress', (prog * 100).toFixed(2) + '%');
+
+        /*
+         * 节拍 → 辉光倍数 + 整体缩放 + 星点强度。
+         * 缩放只给 1.0~1.035 —— 桌面歌词压在别的窗口上，
+         * 幅度大了会晃得人烦；"呼吸"要的是感觉得到，不是看得见。
+         */
+        const pulse = Math.min(1, Math.max(0, p.pulse || 0));
+        root.style.setProperty('--lyric-glow-k', (0.75 + pulse * 1.05).toFixed(3));
+        root.style.setProperty('--lyric-scale', (1 + pulse * 0.035).toFixed(4));
+        sparkLevel += (0.1 + pulse * 0.42 - sparkLevel) * 0.12;
+
+        requestAnimationFrame(reportHot);
+      });
+
+      function hexToRgba(hex, a) {
+        const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+        if (!m) return 'rgba(255,255,255,' + a + ')';
+        const v = parseInt(m[1], 16);
+        return 'rgba(' + ((v >> 16) & 255) + ',' + ((v >> 8) & 255) + ',' + (v & 255) + ',' + a + ')';
+      }
+
+      if (document.fonts && document.fonts.ready) void document.fonts.ready.then(reportHot);
+
+      /* ---------------- 自己拖窗口 ---------------- */
+
+      /*
+       * ★ 用**指针捕获**，这是从 Mineradio 学来的关键一条
+       *（它的 desktop-lyrics.html:1127-1170）。
+       *
+       * 没有捕获的时候：拖动一快，光标就跑出了窗口范围，
+       * 窗口收不到 mousemove 了 → 停住不跟 → 光标被拖回来才又跟上。
+       * 表现出来就是"一顿一顿、不跟手"。
+       *
+       * setPointerCapture 之后，**指针的所有事件都会继续送到这个元素，
+       * 哪怕光标已经跑到窗口外面** —— 于是窗口能一直贴着光标走。
+       *
+       * 另外：位移**逐事件发送，不做节流**。
+       * 我上一版用 requestAnimationFrame 归拢，等于每帧的位移要等下一个
+       * 绘制周期才发出去，凭空多一帧延迟 —— 而"跟手"要的正是零延迟。
+       * Mineradio 也是逐事件发的，它不卡。
+       */
+      let dragging = false;
+      let dragPointerId = null;
+      /** 是否已经真的开始拖（单击不该算拖动） */
+      let dragStarted = false;
+      let isDragging = false;
+      let lastX = 0;
+      let lastY = 0;
+
+      const stageEl = document.querySelector('.stage');
+
+      /** 捕获/释放指针。包一层 try：某些环境下 pointerId 已失效会抛错 */
+      function capturePointer(on) {
+        try {
+          if (!stageEl) return;
+          if (on && dragPointerId != null && stageEl.setPointerCapture) {
+            stageEl.setPointerCapture(dragPointerId);
+          } else if (!on && dragPointerId != null && stageEl.releasePointerCapture && stageEl.hasPointerCapture
+                     && stageEl.hasPointerCapture(dragPointerId)) {
+            stageEl.releasePointerCapture(dragPointerId);
+          }
+        } catch {}
+      }
+
+      /* ---------------- 位置（transform 承载） ---------------- */
+
+      let offX = 0;
+      let offY = 0;
+
+      function applyOffset() {
+        root.style.setProperty('--lx', offX + 'px');
+        root.style.setProperty('--ly', offY + 'px');
+      }
+
+      // 主进程推来的偏移（显示时、拖动开始时各同步一次）
+      window.api.desktopLyric.onOffset((o) => {
+        if (!o) return;
+        offX = Number(o.x) || 0;
+        offY = Number(o.y) || 0;
+        applyOffset();
+        requestAnimationFrame(reportHot);
+      });
+
+      /*
+       * 主进程转发来的拖动位移。
+       * 这里**只改 transform**，一次系统调用都不发 —— 这是整条链路上最便宜的一环，
+       * 也是拖动跟手的根本原因。
+       */
+      window.api.desktopLyric.onMove((d) => {
+        if (!d) return;
+        offX += Number(d.dx) || 0;
+        offY += Number(d.dy) || 0;
+        applyOffset();
+        requestAnimationFrame(reportHot);
+      });
+
+      function beginDrag(e) {
+        dragging = true;
+        isDragging = true;
+        dragStarted = false; // 还没真移动，先不惊动主进程
+        dragPointerId = e.pointerId;
+        lastX = e.screenX;
+        lastY = e.screenY;
+        capturePointer(true);
+      }
+
+      function moveDrag(e) {
+        if (!dragging) return;
+        const dx = e.screenX - lastX;
+        const dy = e.screenY - lastY;
+        if (!dx && !dy) return;
+        lastX = e.screenX;
+        lastY = e.screenY;
+        /*
+         * ★ 第一次**真正移动**时才告诉主进程"开始拖了"。
+         *
+         * 原来是 pointerdown 就发 dragStart —— 于是单纯点一下也会走完
+         * "冻结穿透 → 解冻 → 校准穿透" 一整套，其中 setIgnoreMouseEvents
+         * 会让分层窗口重绘一次，用户看到的就是"点一下像被弹出来一下"。
+         *
+         * 推迟到这里之后，单击就**什么都不做**。
+         */
+        if (!dragStarted) {
+          dragStarted = true;
+          window.api.desktopLyric.dragStart();
+        }
+        window.api.desktopLyric.moveBy(dx, dy);
+      }
+
+      function endDrag(e) {
+        if (!dragging) return;
+        if (e && dragPointerId != null && e.pointerId != null && e.pointerId !== dragPointerId) return;
+        dragging = false;
+        isDragging = false;
+        capturePointer(false);
+        dragPointerId = null;
+        /*
+         * 只有**真的拖过**才通知主进程收尾。
+         * 单纯点一下的话 dragStart 根本没发出去，这里也就不该发 dragEnd ——
+         * 否则又会触发一次穿透重算，那正是"点一下像被弹出来一下"的来源。
+         */
+        if (dragStarted) {
+          dragStarted = false;
+          /*
+           * 只在**松手时**把最终偏移报回主进程一次。
+           * 拖动中每帧都报的话，等于又开了一条 IPC 洪流 ——
+           * 那正是我们好不容易绕开的东西。
+           */
+          window.api.desktopLyric.setOffset({ x: offX, y: offY });
+          window.api.desktopLyric.dragEnd();
+        }
+      }
+
+      document.body.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        beginDrag(e);
+        e.preventDefault();
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        /*
+         * 捕获可能因为各种原因掉了（系统切换、窗口重建）——
+         * 这时如果还按着左键，就重新捕获一次。
+         * 不补这一步的话，中途掉捕获就等于"这一拖废了"。
+         */
+        if (dragging && e.buttons != null && (e.buttons & 1) === 1) {
+          try {
+            if (dragPointerId != null && stageEl && stageEl.hasPointerCapture
+                && !stageEl.hasPointerCapture(dragPointerId)) {
+              stageEl.setPointerCapture(dragPointerId);
+            }
+          } catch {}
+        }
+        // 左键已经松开但没收到 pointerup（比如在窗口外松的）→ 主动收尾
+        if (dragging && e.buttons != null && (e.buttons & 1) === 0) {
+          endDrag(e);
+          return;
+        }
+        moveDrag(e);
+      });
+
+      window.addEventListener('pointerup', endDrag);
+      window.addEventListener('pointercancel', endDrag);
+      // 捕获被系统收走时也要收尾，否则状态会留在"拖动中"
+      window.addEventListener('lostpointercapture', () => {
+        if (dragging) endDrag();
+      });
+
+      /*
+       * ★ 这里**不要**再处理中键了。
+       *
+       * 曾经在这里绑过 mousedown(button===1) → toggleLock()。
+       * 但中键同时被主进程的全局监听（PowerShell 读 GetAsyncKeyState）
+       * 收着，于是**一次按键被切了两次**：这条把它锁上、那条又解开，
+       * 用户看到的就是"提示词闪一下"。
+       *
+       * 全局监听能覆盖这个场景（而且**锁定时也能用** —— 那正是它的意义），
+       * 所以页面这条是多余的，留着只会互相抵消。
+       */
+
+      document.body.addEventListener('dblclick', () => {
+        window.api.desktopLyric.toggleLock();
+      });
+      const hintEl = document.getElementById('locked');
+      let hintTimer = null;
+
+      /**
+       * 弹一次状态提示，ms 毫秒后自动淡出。
+       * 连续切换时重置计时器，不会出现"新的提示被旧的定时器提前关掉"。
+       */
+      function flashHint(text, ms) {
+        hintEl.textContent = text;
+        hintEl.classList.add('show');
+        if (hintTimer) clearTimeout(hintTimer);
+        hintTimer = setTimeout(() => hintEl.classList.remove('show'), ms);
+      }
+
+      window.api.desktopLyric.onLock((locked) => {
+        document.body.classList.toggle('locked', !!locked);
+        /*
+         * 锁定提示给足时间（2.6s）—— 那上面写着"怎么解锁"，
+         * 用户锁完往往要愣一下才去读。
+         * 解锁只给 1.4s，它只是个"生效了"的回执。
+         */
+        flashHint(locked ? '🔒 已锁定 · 再按中键解锁' : '🔓 已解锁', locked ? 2600 : 1400);
+      });
+
+      /* ---------------- 热点 ---------------- */
+
+      function textRect(el) {
+        if (!el || !el.textContent.trim()) return null;
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        return r.getBoundingClientRect();
+      }
+
+/*
+       * ★ 抓取的余量放宽到 34px。
+       *
+       * 窗口铺满屏幕之后，**只有这一块能抓** —— 如果整屏都能抓，
+       * 这个透明窗口就会挡住整个桌面。所以热点只能围着文字。
+       *
+       * 但原来只给 10px：文字 411x52，热点 426x81 —— 按偏一点点就抓不住，
+       * 用起来就是"拖不动"。34px 之后手感宽松得多，
+       * 同时热点总面积仍然只占屏幕的百分之几，不会妨碍别的东西。
+       */
+      const HOT_PAD = 34;
+
+      function reportHot() {
+        /*
+         * ★ 不要乘 devicePixelRatio：诊断实测页面视口 innerWidth 与窗口宽度
+         * 相等，CSS 像素就是窗口单位。乘了会把热点放大并右移，
+         * 结果只有最右边一小块能拖（用户反馈过"按住赏那里才能拖"）。
+         */
+        const gl = mainEl.parentElement;
+        const rects = [textRect(gl), textRect(nextEl)].filter(Boolean);
+        if (!rects.length) return;
+        window.api.desktopLyric.hotBounds({
+          left: Math.min(...rects.map((r) => r.left)) - HOT_PAD,
+          right: Math.max(...rects.map((r) => r.right)) + HOT_PAD,
+          top: Math.min(...rects.map((r) => r.top)) - HOT_PAD,
+          bottom: Math.max(...rects.map((r) => r.bottom)) + HOT_PAD,
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "music-desktop",
+  "productName": "MusicPlayer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "桌面端 Electron 壳：音源核心跑在主进程，界面通过 IPC 调用",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "@dsh/music-core": "file:../../packages/core"
+  },
+  "devDependencies": {
+    "electron": "^42.4.1"
+  }
+}

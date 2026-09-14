@@ -1,0 +1,21 @@
+{
+  "metric": "jank",
+  "settleMs": 16000,
+  "rounds": 2,
+  "reload": true,
+  "hash": "",
+  "configs": [
+    {
+      "name": "① 正常（画布+UI）",
+      "setup": "window.__mpSkipRender(false); window.__mpLayers({particles:true,cover:true}); window.__mpSet({bloom:true,bloomStrength:0.6}); window.__mpSet({renderScale:1.0}); [...document.body.children].forEach(el=>{ if(el.dataset&&el.dataset._pd!==undefined){el.style.display=el.dataset._pd; delete el.dataset._pd;} }); 'restored'"
+    },
+    {
+      "name": "② 只留画布（UI 全隐藏）",
+      "setup": "[...document.body.children].forEach(el=>{ if(el.id==='bg') return; if(el.dataset._pd===undefined) el.dataset._pd = el.style.display||''; el.style.display='none'; }); 'body子元素=' + document.body.children.length + ' 已隐藏的非画布元素'"
+    },
+    {
+      "name": "③ 恢复",
+      "setup": "[...document.body.children].forEach(el=>{ if(el.dataset&&el.dataset._pd!==undefined){el.style.display=el.dataset._pd; delete el.dataset._pd;} }); 'restored'"
+    }
+  ]
+}

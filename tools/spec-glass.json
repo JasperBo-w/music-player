@@ -1,0 +1,16 @@
+{
+  "metric": "cadence",
+  "cadenceFrames": 500,
+  "rounds": 3,
+  "reload": true,
+  "configs": [
+    {
+      "name": "A 面板磨砂 开",
+      "setup": "document.documentElement.classList.remove('no-glass-blur'); 'glassOff=' + document.documentElement.classList.contains('no-glass-blur')"
+    },
+    {
+      "name": "B 面板磨砂 关",
+      "setup": "document.documentElement.classList.add('no-glass-blur'); 'glassOff=' + document.documentElement.classList.contains('no-glass-blur')"
+    }
+  ]
+}
