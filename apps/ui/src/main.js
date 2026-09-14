@@ -52,6 +52,12 @@ const $ = (sel) => {
   if (!el) throw new Error(`找不到元素: ${sel}`);
   return el;
 };
+/**
+ * 和 $() 一样，但找不到时返回 null 而不是抛错。
+ * 用于"按状态决定要不要显示"的区块：那些节点可能在重构中被删掉，
+ * 那种情况下静默跳过比让整个渲染流程炸掉更合适。
+ */
+const $maybe = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 let toastTimer = 0;
@@ -1788,17 +1794,24 @@ async function loadHome() {
   const h = new Date().getHours();
   $('#home-kicker').textContent = h < 6 ? '夜深了' : h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好';
 
+  // 登录态决定首页展示什么：未登录时下面那些依赖账号数据的区块全部藏掉
+  let loggedIn = false;
   try {
     const acc = await api.account();
-    if (acc.loggedIn) {
+    loggedIn = Boolean(acc.loggedIn);
+    if (loggedIn) {
       $('#home-title').textContent = acc.nickname || '已登录';
       $('#home-sub').textContent = `${acc.vipLevel || ''} · ${acc.userid || ''}`;
     } else {
       $('#home-title').textContent = '未登录';
-      $('#home-sub').textContent = '点左下角扫码登录，登录后才能看到你的歌单';
+      $('#home-sub').textContent = '点左下角「扫码登录酷狗」，登录后就能看到你的歌单和播放记录';
     }
   } catch {
-    /* 忽略：问候语拿不到不影响别的 */
+    /*
+     * 拿不到账号状态时按未登录处理：这条路径上继续去拉歌单 / 历史
+     * 只会换来一堆失败，不如直接给一句能操作的提示。
+     */
+    loggedIn = false;
   }
 
   /*
@@ -1828,45 +1841,93 @@ async function loadHome() {
 
   // 歌单（顺带喂统计数字）
   let totalSongs = 0;
-  try {
-    if (!state.playlists.length) state.playlists = await api.playlists();
-    totalSongs = state.playlists.reduce((a, p) => a + (Number(p.count) || 0), 0);
-    $('#tile-playlists').textContent = `${state.playlists.length} 个 · ${totalSongs} 首`;
-  } catch {
-    $('#tile-playlists').textContent = '未登录';
+  if (!loggedIn) {
+    $('#tile-playlists').textContent = '需登录';
+  } else {
+    try {
+      if (!state.playlists.length) state.playlists = await api.playlists();
+      totalSongs = state.playlists.reduce((a, p) => a + (Number(p.count) || 0), 0);
+      $('#tile-playlists').textContent = `${state.playlists.length} 个 · ${totalSongs} 首`;
+    } catch (e) {
+      /*
+       * 登录着却拉不到歌单，是真的异常。
+       * 但这里只把 tile 标成「不可用」、并把歌单区收起来 ——
+       * 不把原始错误糊到首页上：错误对象经过 IPC 序列化之后
+       * 信息基本丢光（常见的是 "[object Object] 未知错误"），
+       * 显示出来对用户没有任何帮助，详细原因看主进程控制台。
+       */
+      console.warn('[home] 歌单加载失败：', e && e.message);
+      $('#tile-playlists').textContent = '不可用';
+    }
   }
 
   // 最近播放
   const recBox = $('#home-recent');
-  recBox.innerHTML = '<div class="loading">加载中</div>';
-  try {
-    const songs = await api.history(1);
-    $('#tile-history').textContent = songs.length ? `${songs.length} 首` : '还没有';
-    if (songs.length) {
-      // 首页只放前几首；完整列表在「最近播放」页
-      renderRows(recBox, songs.slice(0, HOME_RECENT_MAX), {
-        queueTitle: '最近播放',
-        addable: true,
-      });
-    } else {
-      recBox.innerHTML = '<div class="empty">还没有播放记录。听几首再回来看看。</div>';
+  let recent = null;
+  if (loggedIn) {
+    recBox.innerHTML = '<div class="loading">加载中</div>';
+    try {
+      recent = await api.history(1);
+      $('#tile-history').textContent = recent.length ? `${recent.length} 首` : '还没有';
+    } catch (e) {
+      // 和歌单一样的处理：不把原始错误甩到页面上
+      console.warn('[home] 最近播放加载失败：', e && e.message);
+      recent = null;
     }
-    $('#home-metrics').innerHTML = `
+  } else {
+    $('#tile-history').textContent = '需登录';
+  }
+
+  /*
+   * 未登录：首页只留「能做什么」，把所有依赖账号的区块收起来。
+   * 一屏的空卡片和空洞的入口，比一句明确的引导更让人困惑。
+   */
+  if (!loggedIn) {
+    // 私人 FM 走的是个性化推荐接口，未登录拿不到内容
+    const fm = $maybe('#home-fm');
+    if (fm) fm.hidden = true;
+    $('#home-metrics').innerHTML = '';
+    for (const sel of ['#home-tiles', '#home-block-recent', '#home-block-playlists']) {
+      const el = $maybe(sel);
+      if (el) el.hidden = true;
+    }
+    return;
+  }
+
+  const fm = $maybe('#home-fm');
+  if (fm) fm.hidden = false;
+
+  // 从「未登录」切回已登录时要把这些重新显示出来，否则会一直藏着
+  for (const sel of ['#home-tiles', '#home-block-recent', '#home-block-playlists']) {
+    const el = $maybe(sel);
+    if (el) el.hidden = false;
+  }
+
+  if (recent && recent.length) {
+    // 首页只放前几首；完整列表在「最近播放」页
+    renderRows(recBox, recent.slice(0, HOME_RECENT_MAX), {
+      queueTitle: '最近播放',
+      addable: true
+    });
+  } else {
+    // 没有记录，或者拉取失败 —— 都收起来，不留一个空白区块
+    recBox.innerHTML = '';
+    const block = $maybe('#home-block-recent');
+    if (block) block.hidden = true;
+  }
+
+  $('#home-metrics').innerHTML = `
       <div class="home-metric"><b>${state.playlists.length}</b><span>歌单</span></div>
       <div class="home-metric"><b>${totalSongs}</b><span>首歌</span></div>
-      <div class="home-metric"><b>${songs.length}</b><span>最近</span></div>`;
-  } catch (e) {
-    $('#tile-history').textContent = '不可用';
-    recBox.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
-    $('#home-metrics').innerHTML = `
-      <div class="home-metric"><b>${state.playlists.length}</b><span>歌单</span></div>
-      <div class="home-metric"><b>${totalSongs}</b><span>首歌</span></div>`;
-  }
+      <div class="home-metric"><b>${recent ? recent.length : 0}</b><span>最近</span></div>`;
 
   // 我的歌单（横向一排卡片）
   const plBox = $('#home-playlists');
   if (!state.playlists.length) {
-    plBox.innerHTML = '<div class="empty">还没有歌单</div>';
+    // 一个歌单都没有时整块收起：留着标题栏和「全部 ›」只会点进一个空页面
+    plBox.innerHTML = '';
+    const block = $maybe('#home-block-playlists');
+    if (block) block.hidden = true;
     return;
   }
   plBox.innerHTML = state.playlists
