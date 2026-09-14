@@ -22,7 +22,7 @@
       "可视化效果与配色自定义"
     ],
     "downloads": {
-      "windows": "https://pub-REPLACE-WITH-YOUR-BUCKET.r2.dev/latest/MusicPlayer-Setup.exe"
+      "windows": "https://github.com/JasperBo-w/music-player/releases/latest/download/MusicPlayer-Setup.exe"
     },
     "mirrors": []
   },
