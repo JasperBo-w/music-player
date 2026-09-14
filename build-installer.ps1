@@ -97,26 +97,45 @@ if (-not $CheckOnly) {
   }
 
   # ---- 2. 打包 ----
-  # 同样用 Start-Process：npm 是 .cmd，& 调用在子进程 stdio 受限的环境里
-  # （沙箱 / 部分安全软件）会直接失败，而且进度输出会把本窗口刷花。
+  # 直接调 electron-builder 的入口，不经过 npm run。
+  #
+  # 为什么不走 npm：npm run 后面用 -- 传的参数会被原样转发给 electron-builder，
+  # 而它只认自己那套旗标。之前传 --loglevel debug 就被它当成
+  # Unknown argument: loglevel 直接退出。少一层转发就少一类这种坑。
   Step '开始打包（首次会下载 NSIS 工具链，几百 MB，耐心等）'
-  $buildScript = if ($DirOnly) { 'dist:dir' } else { 'dist' }
+
+  $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
+  if (-not $nodeExe) {
+    Bad '找不到 node，请确认 Node.js 已安装并在 PATH 里。'
+    Read-Host '  按回车关闭'
+    exit 1
+  }
+  $builderCli = Join-Path $desktop 'node_modules\electron-builder\out\cli\cli.js'
+  if (-not (Test-Path $builderCli)) {
+    Bad "找不到 electron-builder 入口：$builderCli"
+    Read-Host '  按回车关闭'
+    exit 1
+  }
+
+  $buildArgs = @($builderCli, '--win')
   if ($DirOnly) {
+    $buildArgs += '--dir'
     Write-Line '   模式：免安装目录（快，用于验证打包是否正确）'
   } else {
     Write-Line '   模式：NSIS 安装包'
   }
   Write-Line ''
 
-  # 输出同时写进日志文件：npm 跑在独立窗口里，窗口一关错误就查不到了。
-  # 失败时我们直接把日志尾部打出来，省得你再去翻。
+  # 输出写进日志文件：electron-builder 跑在独立窗口里，窗口一关错误就查不到了。
+  # 失败时直接把日志尾部打出来，省得再去翻。
+  # 想看更详细的输出，在 $buildArgs 里加 --debug（electron-builder 自己的旗标）。
   $log = Join-Path $root '.logs\build-electron-builder.log'
   New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
   Write-Line "   完整日志：$log"
   Write-Line ''
 
-  $proc = Start-Process -FilePath $npmExe `
-    -ArgumentList 'run', $buildScript, '--', '--loglevel', 'debug' `
+  $proc = Start-Process -FilePath $nodeExe `
+    -ArgumentList $buildArgs `
     -WorkingDirectory $desktop -PassThru -Wait `
     -RedirectStandardOutput $log -RedirectStandardError "$log.err"
   $code = $proc.ExitCode
@@ -141,7 +160,7 @@ if (-not $CheckOnly) {
     Write-Line ''
     Write-Line '   想看详细报错就手动跑：'
     Write-Line '       cd apps\desktop'
-    Write-Line "       npm run $buildScript"
+    Write-Line '       npx electron-builder --win'
     Read-Host '  按回车关闭'
     exit 1
   }
