@@ -42,31 +42,41 @@ Write-Host '  ========================================'
 Write-Host ''
 
 # ---- 1. 清理损坏的 winCodeSign 缓存 ----
-Write-Host '[1] 清理 winCodeSign 缓存'
+Write-Host '[1] 检查 winCodeSign 缓存'
 
 $wc = Join-Path $env:LOCALAPPDATA 'electron-builder\Cache\winCodeSign'
 if (Test-Path $wc) {
-  $dirs = Get-ChildItem $wc -Directory -ErrorAction SilentlyContinue
-  if ($dirs) {
-    foreach ($d in $dirs) {
+  $dirs = @(Get-ChildItem $wc -Directory -ErrorAction SilentlyContinue)
+
+  # 完整性判据：Windows 构建真正需要的是 rcedit（用来改 exe 的图标和版本信息）。
+  #
+  # 不要用"文件总数"判断 —— 这个包正常解压出来就是 83 个文件。原因：它里面的
+  # darwin/linux 那些 .dylib 是符号链接，没权限时 7-Zip 会跳过它们，
+  # 所以文件数永远到不了 100+。之前按 100 判断，把一个完好的缓存反复删掉重解压。
+  # 按实际产物判断才是可靠的。
+  $broken = @()
+  $healthy = @()
+  foreach ($d in $dirs) {
+    $rcedit = Get-ChildItem $d.FullName -Filter 'rcedit-x64.exe' -File -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+    if ($rcedit -and $rcedit.Length -gt 100KB) { $healthy += $d } else { $broken += $d }
+  }
+
+  if ($broken.Count -gt 0) {
+    foreach ($d in $broken) {
       $count = (Get-ChildItem $d.FullName -Recurse -File -ErrorAction SilentlyContinue |
                   Measure-Object).Count
-      # 正常解压完是 100 多个文件且含工具；失败留下的通常只有几十个且缺东西。
-      # 与其判断完整性，不如全删掉让它重新解压一次 —— 反正也就几 MB。
-      Write-Host ("    删除 {0}（{1} 个文件）" -f $d.Name, $count)
+      Write-Host ("    删除不完整的缓存 {0}（{1} 个文件，但找不到 rcedit-x64.exe）" -f $d.Name, $count) -ForegroundColor Yellow
       Remove-Item $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
     }
+    Write-Host '    [OK] 已清理，下次会重新解压' -ForegroundColor Green
+  } elseif ($healthy.Count -gt 0) {
+    Write-Host ("    [OK] 缓存完好（{0} 份，rcedit 就位，无需重解压）" -f $healthy.Count) -ForegroundColor Green
+  } else {
+    Write-Host '    （缓存为空，首次会下载并解压）'
   }
-
-  # 残留的 7z 压缩包也一并清掉，确保重新下载/解压
-  Get-ChildItem $wc -Filter '*.7z' -File -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Host ("    删除压缩包 {0}" -f $_.Name)
-    Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-  }
-
-  Write-Host '    [OK] 缓存已清空，下次会重新解压' -ForegroundColor Green
 } else {
-  Write-Host '    （缓存目录不存在，跳过）'
+  Write-Host '    （缓存目录不存在，首次会下载并解压）'
 }
 
 # 顺带清掉 electron-builder 缓存里的下载中间产物

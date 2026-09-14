@@ -31,6 +31,17 @@ if (-not (Test-Path $Dist)) {
   exit 1
 }
 
+# 立刻转成绝对路径 —— 这一步是必须的，不是保险。
+#
+# 踩过的坑：Test-Path（PowerShell cmdlet）用 PowerShell 的当前位置解析相对路径，
+# 能通过；而后面读 app.asar 用的 [System.IO.File]::ReadAllBytes() 是 .NET 静态
+# 方法，它用**进程的当前目录**。两者在 PowerShell 里可能不一致（尤其是通过
+# Start-Process 提权、或从别的目录调用脚本时），于是报出：
+#     未能找到路径 "C:\Windows\system32\apps\desktop\dist\win-unpacked\resources\app.asar"
+# 前半段的 system32 就是 .NET 的当前目录。表现为"文件明明在，却说找不到"。
+#
+# 统一成绝对路径之后，跟当前目录就没关系了。
+$Dist = (Resolve-Path $Dist).Path
 $unpacked = Join-Path $Dist 'win-unpacked'
 if (-not (Test-Path $unpacked)) {
   Write-Host "找不到 $unpacked" -ForegroundColor Red
