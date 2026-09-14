@@ -1,0 +1,34 @@
+{
+  "appId": "com.musicplayer.app",
+  "productName": "MusicPlayer",
+  "copyright": "(C) 2025 Music Player",
+  "asar": false,
+  "win": {
+    "signAndEditExecutable": false,
+    "target": [
+      {
+        "target": "dir",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "${productName}-${version}.${ext}"
+  },
+  "directories": {
+    "output": "dist-nobuilder",
+    "buildResources": "build"
+  },
+  "files": [
+    "main.js",
+    "preload.js",
+    "package.json",
+    "!**/.session.json",
+    "!**/*.log"
+  ],
+  "extraResources": [
+    {
+      "from": "../ui",
+      "to": "ui",
+      "filter": ["**/*", "!node_modules/**"]
+    }
+  ]
+}

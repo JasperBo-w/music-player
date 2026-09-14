@@ -2,9 +2,12 @@
 #  音乐播放器 · 打包安装包
 # --------------------------------------------------------------------------
 #  用法（任选其一）：
-#    1. 双击根目录的 build-installer.bat   （推荐）
-#    2. 命令行：powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
-#    3. 只检查已有产物、不重新打包：加 -CheckOnly
+#    1. 双击根目录的 build-installer.bat      （推荐）
+#    2. powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
+#    3. 只检查已有产物：加 -CheckOnly
+#    4. 快速验证（不出安装器）：加 -DirOnly
+#    5. app-builder 起不来时的兜底：加 -NoAppBuilder
+#    6. 排查用详细日志：加 -VerboseLog
 #
 #  产出：apps/desktop/dist/MusicPlayer-<版本>-Setup.exe
 #
@@ -16,7 +19,11 @@ param(
   # 跳过打包，只对已有产物跑检查
   [switch] $CheckOnly,
   # 出免安装目录而不是安装器（快很多，用于快速验证）
-  [switch] $DirOnly
+  [switch] $DirOnly,
+  # 兜底方案：用备用配置关掉 asar 与签名，绕开 app-builder
+  [switch] $NoAppBuilder,
+  # 让 electron-builder 打印完整过程（排查用）
+  [switch] $VerboseLog
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,16 +47,16 @@ if (-not (Test-Path (Join-Path $desktop 'main.js'))) {
   exit 1
 }
 
+# npm 路径在这里解析一次，装依赖和后面的步骤都要用。
+# 不要放进下面的 if 里：那个 if 只在"没装过依赖"时才进入，
+# 第二次运行时 $npmExe 会是 null，Start-Process 直接报参数校验失败。
+$npmExe = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
+if (-not $npmExe) { $npmExe = (Get-Command npm -ErrorAction SilentlyContinue).Source }
+
 if (-not $CheckOnly) {
   # ---- 1. 依赖 ----
   Step '检查依赖'
 
-  # 先解析 npm 路径，**必须在下面的 if 之外**：
-  # 打包那一步也要用它，而装依赖的 if 只在"没装过"时才进入 ——
-  # 之前放在里面，导致第二次运行时 $npm 是 null，
-  # Start-Process 直接报「无法对参数 FilePath 执行参数验证，参数为 Null 或空」。
-  $npmExe = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
-  if (-not $npmExe) { $npmExe = (Get-Command npm -ErrorAction SilentlyContinue).Source }
   if (-not $npmExe) {
     Bad '找不到 npm，请确认 Node.js 已安装并在 PATH 里。'
     Read-Host '  按回车关闭'
@@ -57,29 +64,27 @@ if (-not $CheckOnly) {
   }
   Ok "npm 就位（$npmExe）"
 
-  $builder = Join-Path $desktop 'node_modules\electron-builder'
-  if (-not (Test-Path $builder)) {
-    Write-Line '   安装 electron-builder（首次会慢一些）...'
+  $builderCli = Join-Path $desktop 'node_modules\electron-builder\out\cli\cli.js'
+
+  if (-not (Test-Path $builderCli)) {
     Write-Line ''
-    Write-Line '   必须在 apps\desktop 目录里装：这个仓库不是 pnpm workspace，'
-    Write-Line '   在根目录跑 pnpm install 只会看到一个空 workspace（啥也不装），'
-    Write-Line '   这正是上一次失败的原因。'
+    Write-Line '   electron-builder 未就位，正在安装（首次会慢一些）...'
+    Write-Line '   必须在 apps\desktop 里装：这个仓库不是 pnpm workspace，'
+    Write-Line '   在根目录跑 pnpm install 只会看到空 workspace，什么也不装。'
     Write-Line ''
 
-    # 用 Start-Process 而不是 & npm：直接调用会把 npm 的进度刷进本窗口，
-    # 而且中文在管道里容易被重新编码成乱码。让它自己输出、我们只看退出码。
     $proc = Start-Process -FilePath $npmExe `
       -ArgumentList 'install', '--no-audit', '--no-fund' `
       -WorkingDirectory $desktop -PassThru -Wait
     $code = $proc.ExitCode
 
-    if ($code -ne 0 -or -not (Test-Path $builder)) {
+    if ($code -ne 0 -or -not (Test-Path $builderCli)) {
       Bad "依赖安装失败（npm 退出码 $code）"
       Write-Line ''
-      Write-Line '   手动排查：打开命令行执行'
+      Write-Line '   手动排查：'
       Write-Line '       cd apps\desktop'
       Write-Line '       npm install'
-      Write-Line '   如果报网络错误（公司代理、DNS），换个网络或配 npm 镜像：'
+      Write-Line '   网络不通的话换个镜像：'
       Write-Line '       npm config set registry https://registry.npmmirror.com'
       Read-Host '  按回车关闭'
       exit 1
@@ -98,10 +103,8 @@ if (-not $CheckOnly) {
 
   # ---- 2. 打包 ----
   # 直接调 electron-builder 的入口，不经过 npm run。
-  #
-  # 为什么不走 npm：npm run 后面用 -- 传的参数会被原样转发给 electron-builder，
-  # 而它只认自己那套旗标。之前传 --loglevel debug 就被它当成
-  # Unknown argument: loglevel 直接退出。少一层转发就少一类这种坑。
+  # npm run 后面用 -- 传的参数会被原样转发给它，而它只认自己那套旗标 ——
+  # 之前传 --loglevel debug 就被当成 Unknown argument 直接退出。
   Step '开始打包（首次会下载 NSIS 工具链，几百 MB，耐心等）'
 
   $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -110,14 +113,25 @@ if (-not $CheckOnly) {
     Read-Host '  按回车关闭'
     exit 1
   }
-  $builderCli = Join-Path $desktop 'node_modules\electron-builder\out\cli\cli.js'
-  if (-not (Test-Path $builderCli)) {
-    Bad "找不到 electron-builder 入口：$builderCli"
-    Read-Host '  按回车关闭'
-    exit 1
-  }
 
   $buildArgs = @($builderCli, '--win')
+
+  if ($NoAppBuilder) {
+    $fallbackCfg = Join-Path $desktop 'electron-builder-noapp.json'
+    if (-not (Test-Path $fallbackCfg)) {
+      Bad "找不到备用配置：$fallbackCfg"
+      Read-Host '  按回车关闭'
+      exit 1
+    }
+    $buildArgs += @('--config', $fallbackCfg)
+    Write-Line '   [兜底模式] 关闭 asar 与签名，绕开 app-builder'
+  }
+
+  if ($VerboseLog) {
+    $buildArgs += '--debug'
+    Write-Line '   [详细模式] 会打印大量过程日志'
+  }
+
   if ($DirOnly) {
     $buildArgs += '--dir'
     Write-Line '   模式：免安装目录（快，用于验证打包是否正确）'
@@ -128,7 +142,6 @@ if (-not $CheckOnly) {
 
   # 输出写进日志文件：electron-builder 跑在独立窗口里，窗口一关错误就查不到了。
   # 失败时直接把日志尾部打出来，省得再去翻。
-  # 想看更详细的输出，在 $buildArgs 里加 --debug（electron-builder 自己的旗标）。
   $log = Join-Path $root '.logs\build-electron-builder.log'
   New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
   Write-Line "   完整日志：$log"
@@ -141,7 +154,7 @@ if (-not $CheckOnly) {
   $code = $proc.ExitCode
 
   if ($code -ne 0) {
-    Bad "打包失败（npm 退出码 $code）"
+    Bad "打包失败（electron-builder 退出码 $code）"
     Write-Line ''
     Write-Line '   ---- 日志最后 25 行 ----' -ForegroundColor Yellow
     foreach ($src in @($log, "$log.err")) {
@@ -154,13 +167,13 @@ if (-not $CheckOnly) {
     Write-Line '   -----------------------' -ForegroundColor Yellow
     Write-Line ''
     Write-Line '   常见原因：'
-    Write-Line '     · NSIS 工具链下载失败 —— 多试一次，或换个网络'
+    Write-Line '     · app-builder.exe 无法执行 —— 先跑 tools\diagnose-appbuilder.ps1，'
+    Write-Line '       或直接用兜底模式：build-installer.bat -NoAppBuilder'
     Write-Line '     · 杀毒软件锁住了 dist 目录 —— 关掉实时防护再试'
-    Write-Line '     · 路径里有特殊字符 —— 本项目路径正常，一般不是这个'
+    Write-Line '     · NSIS 工具链下载失败 —— 多试一次，或换个网络'
     Write-Line ''
-    Write-Line '   想看详细报错就手动跑：'
-    Write-Line '       cd apps\desktop'
-    Write-Line '       npx electron-builder --win'
+    Write-Line '   想看详细报错：'
+    Write-Line '       build-installer.bat -VerboseLog'
     Read-Host '  按回车关闭'
     exit 1
   }
@@ -214,7 +227,7 @@ Write-Line ''
 if ($checkCode -eq 0) {
   Write-Host '  可以进了。' -ForegroundColor Green
 } else {
-  Write-Host "  有 $checkCode 项检查未通过，看上面的 [X] 说明。" -ForegroundColor Red
+  Write-Host " 有 $checkCode 项检查未通过，看上面的 [X] 说明。" -ForegroundColor Red
 }
 Write-Line ''
 Read-Host '  按回车关闭'

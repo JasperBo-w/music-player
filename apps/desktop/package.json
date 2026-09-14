@@ -3,7 +3,7 @@
   "productName": "MusicPlayer",
   "version": "0.1.0",
   "private": true,
-  "description": "桌面端 Electron 壳：音源核心跑在主进程，界面通过 IPC 调用",
+  "description": "Electron desktop shell: music core runs in the main process, UI talks over IPC",
   "author": "JasperBo-w",
   "license": "MIT",
   "main": "main.js",
@@ -23,7 +23,7 @@
   "build": {
     "appId": "com.musicplayer.app",
     "productName": "MusicPlayer",
-    "copyright": "© 2025 Music Player",
+    "copyright": "(C) 2025 Music Player",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -60,7 +60,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "音乐播放器",
+      "shortcutName": "Music Player",
       "deleteAppDataOnUninstall": false
     }
   }
