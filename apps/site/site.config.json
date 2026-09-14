@@ -27,16 +27,17 @@
     "mirrors": [
       {
         "label": "蓝奏云",
-        "url": "REPLACE-WITH-LANZOU-URL",
-        "note": "94.92 MB · 国内直连"
+        "url": "https://wwbqm.lanzouv.com/iUwKU48fm9aj",
+        "note": "94.92 MB · 提取码 1111"
       },
       {
         "label": "GitHub",
         "url": "https://github.com/JasperBo-w/music-player/releases/latest/download/MusicPlayer-Setup.exe",
-        "note": "94.92 MB"
+        "note": "94.92 MB · 需能访问 GitHub"
       }
     ],
-    "primary": "mirror"
+    "primary": "mirror",
+    "lanzouPassword": "1111"
   },
   "requirements": [
     {
