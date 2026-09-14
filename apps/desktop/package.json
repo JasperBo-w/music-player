@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "桌面端 Electron 壳：音源核心跑在主进程，界面通过 IPC 调用",
+  "author": "JasperBo-w",
+  "license": "MIT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

@@ -102,13 +102,31 @@ if (-not $CheckOnly) {
   }
   Write-Line ''
 
+  # 输出同时写进日志文件：npm 跑在独立窗口里，窗口一关错误就查不到了。
+  # 失败时我们直接把日志尾部打出来，省得你再去翻。
+  $log = Join-Path $root '.logs\build-electron-builder.log'
+  New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+  Write-Line "   完整日志：$log"
+  Write-Line ''
+
   $proc = Start-Process -FilePath $npm `
-    -ArgumentList 'run', $script `
-    -WorkingDirectory $desktop -PassThru -Wait
+    -ArgumentList 'run', $script, '--', '--loglevel', 'debug' `
+    -WorkingDirectory $desktop -PassThru -Wait `
+    -RedirectStandardOutput $log -RedirectStandardError "$log.err"
   $code = $proc.ExitCode
 
   if ($code -ne 0) {
     Bad "打包失败（npm 退出码 $code）"
+    Write-Line ''
+    Write-Line '   ---- 日志最后 25 行 ----' -ForegroundColor Yellow
+    foreach ($src in @($log, "$log.err")) {
+      if (Test-Path $src) {
+        Get-Content $src -Tail 25 -ErrorAction SilentlyContinue | ForEach-Object {
+          Write-Host "   $_" -ForegroundColor DarkGray
+        }
+      }
+    }
+    Write-Line '   -----------------------' -ForegroundColor Yellow
     Write-Line ''
     Write-Line '   常见原因：'
     Write-Line '     · NSIS 工具链下载失败 —— 多试一次，或换个网络'
@@ -126,8 +144,21 @@ if (-not $CheckOnly) {
 
 # ---- 3. 检查产物 ----
 Step '检查打包产物'
-& (Join-Path $root 'tools\check-package.ps1')
-$checkCode = $LASTEXITCODE
+# 捕获检查器的输出，从 CHECK_RESULT 行判断成败。
+# 不依赖 $LASTEXITCODE 跨脚本传递 —— 那个行为在不同 PowerShell 版本上不一致，
+# 曾造成"检查通过但被当成失败"的误判。
+$checkLog = Join-Path $root '.logs\check-package.log'
+& (Join-Path $root 'tools\check-package.ps1') *>&1 | Tee-Object -FilePath $checkLog
+$checkText = if (Test-Path $checkLog) { Get-Content $checkLog -Raw -ErrorAction SilentlyContinue } else { '' }
+
+if ($checkText -match 'CHECK_RESULT=PASS') {
+  $checkCode = 0
+} elseif ($checkText -match 'CHECK_RESULT=FAIL:(\d+)') {
+  $checkCode = [int]$Matches[1]
+} else {
+  # 没有结果行说明检查器自己挂了，这种情况要当成失败
+  $checkCode = 1
+}
 
 # ---- 4. 结果 ----
 Step '结果'

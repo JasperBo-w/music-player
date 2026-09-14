@@ -96,7 +96,7 @@ if (-not (Test-Path $asar)) {
   # 按 asar 格式读头部
   $bytes = [System.IO.File]::ReadAllBytes($asar)
   # 边界校验：asar 头不该超过文件本身，否则说明格式不是我们预期的
-  if ($bytes.Length -lt 16) { Fail 'app.asar 太小/格式不对'; return }
+  if ($bytes.Length -lt 16) { Fail 'app.asar 太小/格式不对'; Write-Host 'CHECK_RESULT=FAIL:1'; exit 1 }
   $headerJsonLen = [BitConverter]::ToInt32($bytes, 12)
   if ($headerJsonLen -le 0 -or (16 + $headerJsonLen) -gt $bytes.Length) {
     Fail "app.asar 头部长度异常（$headerJsonLen），无法解析"
@@ -171,5 +171,15 @@ if ($fail -eq 0) {
 } else {
   Write-Host "有 $fail 项没过，先修掉再发。" -ForegroundColor Red
 }
+
+# 机器可读的结果行 —— 调用方读这一行判断成败，不依赖退出码传递。
+# 为什么：跨脚本用 $LASTEXITCODE 取退出码在不同 PowerShell 版本上行为不一致，
+# 曾导致"检查其实通过、调用方却当成失败"。读一行确定的文本可靠得多。
 Write-Host ''
+if ($fail -eq 0) {
+  Write-Host 'CHECK_RESULT=PASS'
+} else {
+  Write-Host "CHECK_RESULT=FAIL:$fail"
+}
+
 exit $fail
