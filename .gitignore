@@ -53,13 +53,17 @@ desktop.ini
 dist/
 out/
 build/
+# 但 electron-builder 的钩子脚本要进仓库 —— 它是构建配置的一部分，不是产物。
+# 少了它打包会静默不裁剪语言包（体积大 12 MB），而且不报错。
+!apps/desktop/build/
+!apps/desktop/build/**
 release/
 
-# ---- �༭�����еĲ��� ----
+# ---- �༭�����еĲ��� ----
 *.broken
 *.bak
 *.old
 *.tmp
 
-# ---- MCP ̽����� ----
+# ---- MCP ̽����� ----
 .mcp-probe/
