@@ -128,7 +128,17 @@ if (process.env.MP_BENCH || process.env.MP_SHOT || process.env.MP_PULSE) {
   app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 }
 
-const UI_ROOT = path.join(__dirname, '..', 'ui');
+/*
+ * 界面文件所在目录。
+ *
+ * 开发时是仓库里的 apps/ui（和本文件同级的上一级）；
+ * 打包后 electron-builder 把 apps/ui 放到了 resources/ui（见 package.json 的
+ * extraResources），而本文件被塞进 resources/app.asar —— 那里没有 ../ui。
+ * 所以两种情形必须分开判断，否则装完之后会白屏（app:// 全部 404）。
+ */
+const UI_ROOT = app.isPackaged
+  ? path.join(process.resourcesPath, 'ui')
+  : path.join(__dirname, '..', 'ui');
 
 /**
  * 为什么要自定义协议（app://）而不是直接 loadFile：

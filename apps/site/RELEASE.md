@@ -8,10 +8,48 @@
 
 ```powershell
 cd apps/desktop
-npm run build        # 或你实际用的打包命令
+
+# 第一次需要先装 electron-builder（它不在原依赖里，是本次为打包新增的）
+pnpm install
+
+# 出 NSIS 安装包 → dist/MusicPlayer-0.1.0-Setup.exe
+npm run dist
+
+# 只想快速试打包（出解压目录，不起安装器，快很多）
+npm run dist:dir
 ```
 
-产出：`dist/MusicPlayer-<版本>-Setup.exe`
+> 首次 `dist` 会联网下载 NSIS 工具链和签名辅助程序，几百 MB，慢是正常的。
+
+### 不用启动就能做的自检
+
+```powershell
+# 在仓库根目录执行，检查 dist:dir 的产物
+powershell -File tools/check-package.ps1
+```
+
+它会直接读 `app.asar` 的头部，检查：
+
+- 主程序和 `resources/ui/index.html` 在不在（缺了就是白屏）
+- 界面关键文件齐不齐（`main.js` / `particles.js` / `three.module.js`）
+- `@dsh/music-core` 及其 **6 个运行时依赖**有没有打进包
+  （junction 链接最容易漏，漏了启动即崩）
+- 包里有没有混进 `.session.json` 或日志
+
+### ⚠️ 打包后必须实测这两点
+
+1. **装完之后能正常起界面。** `apps/ui` 是作为 `extraResources` 放到
+   `resources/ui` 的，代码里靠 `app.isPackaged` 切换路径（见 `main.js` 的
+   `UI_ROOT`）。路径算错的表现是**白屏**——窗口出来了但 `app://` 全部 404。
+   如果白屏，先确认 `resources/ui/index.html` 是否存在。
+
+2. **音源能跑。** `@dsh/music-core` 是指向仓库里 `packages/core` 的
+   **junction 链接**，electron-builder 对软链接依赖的收集是最容易出问题的地方。
+   一旦它没把 `packages/core/node_modules`（axios / crypto-js / node-forge /
+   pako / qrcode / big-integer）一起打进包，程序会在启动瞬间报
+   `Cannot find module 'axios'` 之类的错。
+   跑一次 `npm run dist:dir`，然后直接运行
+   `dist/win-unpacked/MusicPlayer.exe` 就能验证——不必先装一遍。
 
 **发布前自检：**
 - [ ] 安装包能正常启动、退出、重启
