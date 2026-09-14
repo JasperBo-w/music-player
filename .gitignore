@@ -60,3 +60,6 @@ release/
 *.bak
 *.old
 *.tmp
+
+# ---- MCP Ì½²â²úÎï ----
+.mcp-probe/
