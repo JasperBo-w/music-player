@@ -109,7 +109,24 @@ if ($url -match 'REPLACE' -or $cfg.release.sha256 -match '待填写') {
   Write-Host '      页面上会显示「安装包未发布」且下载按钮不可点，这是预期行为。' -ForegroundColor Yellow
   Write-Host '      等安装包传上 R2 后再填 release.downloads.windows 和 sha256。' -ForegroundColor Yellow
 } else {
-  Write-Host ("✓ 下载链接已配置：{0}" -f $url) -ForegroundColor Green
+  # 主按钮指向哪个源要报准 —— 配了 primary=mirror 时主按钮是镜像，
+  # 只报 downloads.windows 会让人以为页面用的是那个链接。
+  $primaryIsMirror = $cfg.release.primary -eq 'mirror'
+  $firstMirror = $null
+  if ($cfg.release.mirrors -and $cfg.release.mirrors.Count -gt 0) { $firstMirror = $cfg.release.mirrors[0] }
+  $mirrorValid = $firstMirror -and $firstMirror.url -and ($firstMirror.url -notmatch 'REPLACE|PLACEHOLDER|TODO')
+
+  if ($primaryIsMirror -and $mirrorValid) {
+    Write-Host ("✓ 主下载源：{0}" -f $firstMirror.label) -ForegroundColor Green
+    Write-Host ("    {0}" -f $firstMirror.url)
+    if ($firstMirror.note) { Write-Host ("    {0}" -f $firstMirror.note) }
+    Write-Host ("✓ 备用源：{0}" -f $url) -ForegroundColor Green
+  } else {
+    Write-Host ("✓ 主下载源：{0}" -f $url) -ForegroundColor Green
+    if ($primaryIsMirror -and -not $mirrorValid) {
+      Write-Host '    （配了 primary=mirror 但第一个镜像链接无效/是占位符，已退回官方源）' -ForegroundColor Yellow
+    }
+  }
   Write-Host ("  版本 {0} / {1} / SHA256 {2}..." -f `
     $cfg.release.version, $cfg.release.fileSize, $cfg.release.sha256.Substring(0, 12))
 }
