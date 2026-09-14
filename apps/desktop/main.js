@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * Electron 主进程
@@ -323,6 +323,50 @@ function getClient() {
 /* IPC 处理器                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 从各种形状的错误对象里挖出一句人话。
+ *
+ * 核心库的失败路径有几种不同形状，直接取 e.message 经常会拿到对象：
+ *   · request.js 网络异常:  body = { status: 0, msg: <Error 对象> }
+ *   · 业务失败:            body = { error_code: 20010, error_msg: '...' }
+ *   · axios 自身的错误:     e.response.data / e.message 是字符串
+ * 拿不到字符串时退化成 String(对象) 就会变成「[object Object] 未知错误」——
+ * 既看不出原因，也没法排查。这里逐个字段试，并顺手把嵌套的 message 挖出来。
+ */
+function describeError(e) {
+  if (!e) return { code: '', msg: '未知错误' };
+
+  const body = (e && e.body) || (e && e.response && e.response.data) || {};
+  const code = body.error_code || body.errcode || e.errcode || '';
+
+  // 按"越具体越靠前"的顺序找消息
+  const candidates = [
+    body.error_msg,
+    body.errmsg,
+    body.msg,
+    body.error,
+    body.message,
+    typeof body.msg === 'object' && body.msg ? body.msg.message : '',
+    e.message,
+    e.response && e.response.statusText
+  ];
+
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return { code, msg: c.trim() };
+    // msg 是对象（上面那种 { status:0, msg: e } 的形状）时，再往里挖一层
+    if (c && typeof c === 'object') {
+      const inner = c.message || c.error_msg || c.errmsg;
+      if (typeof inner === 'string' && inner.trim()) return { code, msg: inner.trim() };
+    }
+  }
+
+  // 实在没有可读信息，至少给出 HTTP 状态，别只说"未知错误"
+  const status = (e.response && e.response.status) || body.status || '';
+  if (status) return { code, msg: `请求失败（HTTP ${status}）` };
+
+  return { code, msg: '未知错误' };
+}
+
 /** 统一的错误包装：把酷狗的业务错误码翻译成可读信息 */
 function wrap(name, fn) {
   return async (_event, ...args) => {
@@ -332,11 +376,9 @@ function wrap(name, fn) {
       console.log(`[ipc] ${name} ✓ ${Date.now() - started}ms`);
       return out;
     } catch (e) {
-      const body = (e && e.body) || {};
-      const code = body.error_code || body.errcode || '';
-      const msg = body.error_msg || body.error || body.errmsg || (e && e.message) || '未知错误';
+      const { code, msg } = describeError(e);
       console.error(`[ipc] ${name} ✗ ${Date.now() - started}ms  ${code ? `[${code}] ` : ''}${msg}`);
-      const err = new Error(code ? `[${code}] ${msg}` : String(msg));
+      const err = new Error(code ? `[${code}] ${msg}` : msg);
       err.code = code;
       throw err;
     }
@@ -485,20 +527,36 @@ function registerIpc() {
     })
   );
 
+  /*
+   * 下列几个接口都是"我自己的数据"，未登录时不该发出去。
+   *
+   * 原因：核心库的这些模块在缺少凭据时会退化成默认值
+   * （user_history 里是 userid=0、token=''），带着这种参数请求，
+   * 服务端会回 [20010] invalid param。于是界面拿到的不是空列表
+   * 而是一个报错，未登录的新用户一进来就看到「加载失败」。
+   *
+   * 直接返回空数组：省掉一次注定失败的请求，界面也能自然地显示
+   * 「还没有播放记录」，而不是把错误糊到脸上。
+   */
+  const requireLogin = (fn) => async (...args) => {
+    if (!c().isLoggedIn) return [];
+    return fn(...args);
+  };
+
   ipcMain.handle(
     'playlists',
-    wrap('playlists', async () => {
+    wrap('playlists', requireLogin(async () => {
       const res = await c().getUserPlaylists({ page: 1, pagesize: 100 });
       const data = (res.body && res.body.data) || {};
       const list = data.info || data.list || data.lists || [];
       return list.map(mapPlaylist).filter((p) => p.id);
-    })
+    }))
   );
 
   /* ---- 最近播放 ---- */
   ipcMain.handle(
     'history',
-    wrap('history', async (page = 1) => {
+    wrap('history', requireLogin(async (page = 1) => {
       const res = await c().getUserHistory({ page: Number(page) || 1, pagesize: 100 });
       const body = res.body || {};
       const data = body.data || body;
@@ -514,7 +572,7 @@ function registerIpc() {
       return (Array.isArray(list) ? list : [])
         .map((it) => mapSong(it && it.info ? it.info : it))
         .filter((s) => s.hash);
-    })
+    }))
   );
 
   /*
@@ -526,6 +584,9 @@ function registerIpc() {
   ipcMain.handle(
     'historyUpload',
     wrap('historyUpload', async (mxid) => {
+      // 未登录时上报没有意义（userid 会退化成 0），直接说清楚原因，
+      // 不要带一份无效参数去换一个 [20010]
+      if (!c().isLoggedIn) return { ok: false, reason: 'not-logged-in' };
       const id = Number(mxid);
       if (!Number.isFinite(id) || id <= 0) return { ok: false, reason: 'no-mxid' };
       try {
@@ -540,7 +601,8 @@ function registerIpc() {
   /* ---- 私人 FM ---- */
   ipcMain.handle(
     'personalFm',
-    wrap('personalFm', async () => {
+    // 个性化推荐，未登录时 userid 会退化成 0，同样会拿回 [20010]
+    wrap('personalFm', requireLogin(async () => {
       const res = await c().getPersonalFm();
       const body = res.body || {};
       /*
@@ -554,7 +616,7 @@ function registerIpc() {
       return (Array.isArray(list) ? list : [])
         .map((it) => mapSong(it && it.info ? it.info : it))
         .filter((s) => s.hash);
-    })
+    }))
   );
 
   ipcMain.handle(

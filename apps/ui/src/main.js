@@ -93,6 +93,12 @@ const state = {
   currentSong: null,
   quality: Number(localStorage.getItem('music-player.quality')) || 128,
   ranks: [],
+  /*
+   * 登录态由 loadAccount() 写入。
+   * 首页 / 最近播放 / 歌单页都要靠它决定该显示"还没有数据"还是"请先登录"——
+   * 这两句话对用户的意义完全不同，不能混用。
+   */
+  loggedIn: false,
 };
 
 /* ------------------------------------------------------------------ */
@@ -1626,13 +1632,48 @@ $('#nav').addEventListener('click', (e) => {
  *
  * 已经有内容时不显示"加载中"，避免每次回来闪一下。
  */
+/*
+ * 账号状态的单一来源。
+ *
+ * 为什么要有这个缓存：state.loggedIn 由 loadAccount() 写入，而它是和
+ * loadHome() 并发调的（见文件末尾启动段），所以启动瞬间它还是默认的 false。
+ * 各个视图如果直接读 state.loggedIn，就会偶发地把「已登录」显示成「请先登录」。
+ *
+ * 返回同一个 Promise：既保证拿到真实状态，也不会重复请求账号接口。
+ * 失败时不抛错 —— 调用方只关心"能不能拿到"，拿不到就按未登录处理。
+ */
+let accountPromise = null;
+function ensureAccount() {
+  if (!accountPromise) {
+    accountPromise = api
+      .account()
+      .then((acc) => {
+        state.loggedIn = Boolean(acc.loggedIn);
+        return acc || { loggedIn: false };
+      })
+      .catch(() => {
+        // 拿不到就按未登录处理：总比假装"你没有数据"要好
+        state.loggedIn = false;
+        return { loggedIn: false };
+      });
+  }
+  return accountPromise;
+}
+
+/** 同上，只取布尔值 */
+const ensureLoggedIn = () => ensureAccount().then((acc) => Boolean(acc.loggedIn));
+
 async function ensureHistoryView() {
   const box = $('#history-list');
   if (!box.querySelector('.row')) box.innerHTML = '<div class="loading">加载中</div>';
   try {
-    const songs = await api.history(1);
+    const [songs, loggedIn] = await Promise.all([api.history(1), ensureLoggedIn()]);
     if (!songs.length) {
-      box.innerHTML = '<div class="empty">还没有播放记录。听几首再回来看看。</div>';
+      // 未登录和"登录了但真没听过"是两回事，提示不能混用：
+      // 对未登录的人说"听几首再回来看看"是误导，他听多少首也不会有记录。
+      box.innerHTML = loggedIn
+        ? '<div class="empty">还没有播放记录。听几首再回来看看。</div>'
+        : '<div class="empty">请先在左下角扫码登录，登录后才能同步你的播放记录。</div>';
       return;
     }
     renderRows(box, songs, { queueTitle: '最近播放', addable: true });
@@ -1801,7 +1842,8 @@ async function loadHome() {
   // 登录态决定首页展示什么：未登录时下面那些依赖账号数据的区块全部藏掉
   let loggedIn = false;
   try {
-    const acc = await api.account();
+    // 走共享缓存，避免和 loadAccount() 重复请求账号接口
+    const acc = await ensureAccount();
     loggedIn = Boolean(acc.loggedIn);
     if (loggedIn) {
       $('#home-title').textContent = acc.nickname || '已登录';
@@ -2382,7 +2424,12 @@ async function loadPlaylists() {
     return;
   }
   if (!lists.length) {
-    grid.innerHTML = '<div class="empty">没有歌单。请先在左下角扫码登录酷狗账号。</div>';
+    // 「未登录」和「登录了但还没有歌单」要分开说：
+    // 对已登录的人提示去登录，只会让人以为登录失效了。
+    const loggedIn = await ensureLoggedIn();
+    grid.innerHTML = loggedIn
+      ? '<div class="empty">你还没有歌单。点下面的「新建歌单」建一个。</div>'
+      : '<div class="empty">请先在左下角扫码登录，登录后才能看到你的歌单。</div>';
     return;
   }
 
@@ -2454,12 +2501,17 @@ async function loadPlaylists() {
 async function loadAccount() {
   const box = $('#account');
   try {
-    const acc = await api.account();
+    // 走共享缓存：account() 的结果在别处（首页、最近播放页、歌单页）
+    // 也要用来判断"未登录"和"没有数据"的区别，没必要反复请求
+    const acc = await ensureAccount();
+    state.loggedIn = Boolean(acc.loggedIn);
     box.innerHTML = acc.loggedIn
       ? `<div class="who">${esc(acc.nickname || '已登录')}</div><div>${esc(acc.vipLevel || '')} · ${esc(acc.userid || '')}</div>` +
         '<button id="btn-logout" class="link">退出登录</button>'
       : '<div>未登录</div><button id="btn-login" class="link">扫码登录酷狗</button>';
   } catch {
+    // 拿不到状态时按未登录处理：这样至少不会假装"你没有数据"
+    state.loggedIn = false;
     box.innerHTML = '<div>账号状态未知</div>';
   }
 
@@ -2495,7 +2547,12 @@ async function loadAccount() {
           return;
         }
         toast('已退出登录');
-        // 账号、首页（"接着听"是个人数据）、歌单全都要重来
+        /*
+         * 账号、首页（"接着听"是个人数据）、歌单全都要重来。
+         * 关键是先把 ensureAccount 的缓存作废 —— 否则下面几个页面
+         * 拿到的还是「已登录」那份旧快照，会继续显示上一个人的数据。
+         */
+        accountPromise = null;
         await loadAccount();
         await loadHome();
         await loadPlaylists();
@@ -2552,6 +2609,8 @@ async function startQrLogin() {
           state.playlists = [];
           playlistsRendered = false;
           state.ranks = [];
+          // 作废账号缓存：否则下面几个页面还会拿到登录前那份「未登录」快照
+          accountPromise = null;
           loadAccount();
           loadHome();
           loadPlaylists();
