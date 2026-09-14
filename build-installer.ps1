@@ -43,6 +43,20 @@ if (-not (Test-Path (Join-Path $desktop 'main.js'))) {
 if (-not $CheckOnly) {
   # ---- 1. 依赖 ----
   Step '检查依赖'
+
+  # 先解析 npm 路径，**必须在下面的 if 之外**：
+  # 打包那一步也要用它，而装依赖的 if 只在"没装过"时才进入 ——
+  # 之前放在里面，导致第二次运行时 $npm 是 null，
+  # Start-Process 直接报「无法对参数 FilePath 执行参数验证，参数为 Null 或空」。
+  $npmExe = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
+  if (-not $npmExe) { $npmExe = (Get-Command npm -ErrorAction SilentlyContinue).Source }
+  if (-not $npmExe) {
+    Bad '找不到 npm，请确认 Node.js 已安装并在 PATH 里。'
+    Read-Host '  按回车关闭'
+    exit 1
+  }
+  Ok "npm 就位（$npmExe）"
+
   $builder = Join-Path $desktop 'node_modules\electron-builder'
   if (-not (Test-Path $builder)) {
     Write-Line '   安装 electron-builder（首次会慢一些）...'
@@ -54,15 +68,7 @@ if (-not $CheckOnly) {
 
     # 用 Start-Process 而不是 & npm：直接调用会把 npm 的进度刷进本窗口，
     # 而且中文在管道里容易被重新编码成乱码。让它自己输出、我们只看退出码。
-    $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
-    if (-not $npm) { $npm = (Get-Command npm -ErrorAction SilentlyContinue).Source }
-    if (-not $npm) {
-      Bad '找不到 npm，请确认 Node.js 已安装并在 PATH 里。'
-      Read-Host '  按回车关闭'
-      exit 1
-    }
-
-    $proc = Start-Process -FilePath $npm `
+    $proc = Start-Process -FilePath $npmExe `
       -ArgumentList 'install', '--no-audit', '--no-fund' `
       -WorkingDirectory $desktop -PassThru -Wait
     $code = $proc.ExitCode
@@ -94,7 +100,7 @@ if (-not $CheckOnly) {
   # 同样用 Start-Process：npm 是 .cmd，& 调用在子进程 stdio 受限的环境里
   # （沙箱 / 部分安全软件）会直接失败，而且进度输出会把本窗口刷花。
   Step '开始打包（首次会下载 NSIS 工具链，几百 MB，耐心等）'
-  $script = if ($DirOnly) { 'dist:dir' } else { 'dist' }
+  $buildScript = if ($DirOnly) { 'dist:dir' } else { 'dist' }
   if ($DirOnly) {
     Write-Line '   模式：免安装目录（快，用于验证打包是否正确）'
   } else {
@@ -109,8 +115,8 @@ if (-not $CheckOnly) {
   Write-Line "   完整日志：$log"
   Write-Line ''
 
-  $proc = Start-Process -FilePath $npm `
-    -ArgumentList 'run', $script, '--', '--loglevel', 'debug' `
+  $proc = Start-Process -FilePath $npmExe `
+    -ArgumentList 'run', $buildScript, '--', '--loglevel', 'debug' `
     -WorkingDirectory $desktop -PassThru -Wait `
     -RedirectStandardOutput $log -RedirectStandardError "$log.err"
   $code = $proc.ExitCode
@@ -135,7 +141,7 @@ if (-not $CheckOnly) {
     Write-Line ''
     Write-Line '   想看详细报错就手动跑：'
     Write-Line '       cd apps\desktop'
-    Write-Line "       npm run $script"
+    Write-Line "       npm run $buildScript"
     Read-Host '  按回车关闭'
     exit 1
   }
