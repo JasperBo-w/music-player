@@ -4,12 +4,12 @@
 
 ## 下载
 
-**[MusicPlayer-Setup.exe](https://github.com/JasperBo-w/music-player/releases/latest/download/MusicPlayer-Setup.exe)** · 102.7 MB · Windows 10 1809 (x64) 及以上
+**[MusicPlayer-Setup.exe](https://github.com/JasperBo-w/music-player/releases/latest/download/MusicPlayer-Setup.exe)** · 94.92 MB · Windows 10 1809 (x64) 及以上
 
 安装包 SHA-256：
 
 ```
-d637fc4b5c7417c4740cb2c35a45e64b980dd949534981fc9f8a6d4aa1df5592
+ca0075cfef2d54542029c1d545304c7e02d14a233a1b0feb5d323f0e9e21b331
 ```
 
 下载后可在 PowerShell 里核对：
