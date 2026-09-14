@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /site.config.json
+
+# 爬虫不需要抓配置文件和部署配置文件

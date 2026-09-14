@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="音乐播放器">
+  <!-- 背景：深色圆角方块，保证在浅色/深色浏览器标签页上都看得清 -->
+  <rect width="32" height="32" rx="7" fill="#0E1014"/>
+  <!-- 六边形外框，和页面顶栏 logo 同一形状 -->
+  <path d="M16 4.2 26.5 10v12L16 27.8 5.5 22V10z"
+        fill="none" stroke="#E8C87A" stroke-width="1.3" opacity=".55"/>
+  <!-- 音符：符干 + 符头 -->
+  <path d="M13.4 11.6v9.2M13.4 11.6l6.2-1.5v7.2"
+        stroke="#E8C87A" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+  <circle cx="11.8" cy="21.2" r="2.2" fill="#E8C87A"/>
+  <circle cx="18" cy="19.8" r="2.2" fill="#E8C87A"/>
+</svg>

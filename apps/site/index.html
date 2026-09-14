@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <title>音乐播放器 · 下载</title>
+  <meta name="description" content="带 3D 粒子视觉的本地音乐播放器桌面端。支持本地曲库、逐字歌词、桌面歌词窗与可视化效果自定义。免费下载。" />
+  <link rel="canonical" href="/" />
+
+  <!-- Open Graph / 社交分享 -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="音乐播放器 · 下载" />
+  <meta property="og:description" content="带 3D 粒子视觉的本地音乐播放器桌面端。" />
+  <!--
+    og:image 先注释掉：指向不存在的图片会让微信/Twitter 的卡片变成空白。
+    等你放了 assets/og-cover.png（建议 1200×630）再打开下面两行。
+  -->
+  <!-- <meta property="og:image" content="/assets/og-cover.png" /> -->
+  <!-- <meta name="twitter:card" content="summary_large_image" /> -->
+  <meta name="twitter:card" content="summary" />
+
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+
+  <!-- 结构化数据，帮助搜索引擎理解这是一个软件下载页 -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "音乐播放器",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Windows 10, Windows 11",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" }
+  }
+  </script>
+</head>
+<body>
+  <!--
+    背景分层（从下到上），和播放器本体的分层思路一致：
+      0. .bg-glow    香槟金 + 紫罗兰光晕
+      1. .bg-grid    全息网格底纹
+      2. #bg         粒子星座画布
+      3. .bg-scan    扫描线
+      4. .bg-noise   胶片噪点
+      5. .scrim      文字可读性压暗
+  -->
+  <div class="bg-glow" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <canvas id="bg" aria-hidden="true"></canvas>
+  <div class="bg-scan" aria-hidden="true"></div>
+  <div class="bg-noise" aria-hidden="true"></div>
+  <div class="scrim" aria-hidden="true"></div>
+
+  <a class="skip-link" href="#download">跳到下载</a>
+
+  <!-- ================= 顶栏 ================= -->
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="32" height="32" fill="none">
+            <path d="M16 2.5 28 9.2v13.6L16 29.5 4 22.8V9.2z" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+            <path d="M16 7.5 23.5 11.6v8.8L16 24.5 8.5 20.4v-8.8z" fill="currentColor" opacity=".12"/>
+            <path d="M13 11.5v9M13 11.5l6-1.4v7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            <circle cx="11.4" cy="20.6" r="2.1" fill="currentColor"/>
+            <circle cx="17.4" cy="19.2" r="2.1" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-name" data-cfg="appName">音乐播放器</span>
+          <span class="brand-sub mono" data-cfg="appNameEn">MUSIC PLAYER</span>
+        </span>
+        <span class="brand-ver mono" data-cfg="version-pill">v0.1.0</span>
+      </a>
+      <nav class="topnav mono" aria-label="站内导航">
+        <a href="#download">下载</a>
+        <a href="#features">功能</a>
+        <a href="#shots">截图</a>
+        <a href="#changelog">更新</a>
+        <a href="#faq">FAQ</a>
+        <a class="topnav-repo" data-cfg="repoUrl" href="#" rel="noopener">GITHUB ↗</a>
+      </nav>
+    </div>
+    <!-- 心跳进度条：纯装饰，给页面一点"在线"的呼吸感 -->
+    <div class="topbar-line" aria-hidden="true"></div>
+  </header>
+
+  <main>
+    <!-- ================= 首屏 ================= -->
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <p class="eyebrow mono">
+          <span class="pulse" aria-hidden="true"></span>
+          <span class="eyebrow-label">RELEASE</span>
+          <span class="eyebrow-sep" aria-hidden="true"></span>
+          <span data-cfg="channelLabel">内测版</span>
+          <span class="eyebrow-sep" aria-hidden="true"></span>
+          <span class="accent" data-cfg="version">v0.1.0</span>
+        </p>
+
+        <h1>
+          <span class="h1-main">
+            <span class="glitch" data-text="音乐播放器" data-cfg="appName">音乐播放器</span>
+          </span>
+          <span class="h1-sub mono" data-cfg="tagline">本地音乐播放器 / 桌面端</span>
+        </h1>
+
+        <p class="lede" data-cfg="description"></p>
+
+        <div class="cta" id="download">
+          <a class="btn btn-primary" data-cfg="downloadUrl" href="#" id="btn-download">
+            <span class="btn-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+                <path d="M12 3v11m0 0 4.2-4.2M12 14l-4.2-4.2M4 17.5v1.2A2.3 2.3 0 0 0 6.3 21h11.4a2.3 2.3 0 0 0 2.3-2.3v-1.2"
+                      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="btn-text">
+              <strong>下载 Windows 版</strong>
+              <small class="mono" data-cfg="fileMeta">.exe</small>
+            </span>
+            <span class="btn-sheen" aria-hidden="true"></span>
+          </a>
+          <a class="btn btn-ghost" data-cfg="repoUrl" href="#" rel="noopener">
+            <span class="btn-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/>
+              </svg>
+            </span>
+            <span class="btn-text"><strong>查看源码</strong><small class="mono">GITHUB</small></span>
+          </a>
+        </div>
+
+        <p class="under-cta mono" id="mirrors"></p>
+      </div>
+
+      <!-- 终端窗口式的版本信息卡 -->
+      <aside class="terminal" aria-label="版本信息">
+        <div class="terminal-bar">
+          <span class="tl-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="tl-title mono">RELEASE_MANIFEST</span>
+          <span class="tl-badge mono" data-cfg="channelLabel">BETA</span>
+        </div>
+
+        <div class="terminal-body">
+          <dl class="info-list">
+            <div><dt class="mono">VERSION</dt><dd class="mono accent" data-cfg="version">v0.1.0</dd></div>
+            <div><dt class="mono">FILE</dt><dd class="mono" data-cfg="fileName">—</dd></div>
+            <div><dt class="mono">SIZE</dt><dd class="mono" data-cfg="fileSize">—</dd></div>
+            <div><dt class="mono">BUILD</dt><dd class="mono" data-cfg="releaseDate">—</dd></div>
+            <div><dt class="mono">PLATFORM</dt><dd data-cfg="minWindows">—</dd></div>
+          </dl>
+
+          <div class="hash">
+            <div class="hash-top">
+              <span class="hash-label mono">SHA-256</span>
+              <button class="copy-btn mono" type="button" data-copy="sha256">COPY</button>
+            </div>
+            <code class="mono hash-value" data-cfg="sha256">—</code>
+            <p class="hash-hint">PowerShell: <code class="mono">Get-FileHash &lt;文件&gt; -Algorithm SHA256</code></p>
+          </div>
+        </div>
+
+        <!-- 四角切角装饰，HUD 味的关键 -->
+        <span class="corner tl" aria-hidden="true"></span>
+        <span class="corner tr" aria-hidden="true"></span>
+        <span class="corner bl" aria-hidden="true"></span>
+        <span class="corner br" aria-hidden="true"></span>
+      </aside>
+    </section>
+
+    <!-- ================= 状态条 ================= -->
+    <section class="statbar wrap" aria-label="版本概览">
+      <div class="statbar-inner" id="statbar"></div>
+    </section>
+
+    <!-- ================= 功能 ================= -->
+    <section class="section wrap" id="features">
+      <header class="section-head">
+        <span class="section-idx mono" aria-hidden="true">01</span>
+        <h2 class="section-title">
+          <span class="section-title-cn">功能</span>
+          <span class="section-title-en mono">CAPABILITIES</span>
+        </h2>
+        <span class="section-rule" aria-hidden="true"></span>
+      </header>
+      <div class="grid grid-features" id="feature-grid"></div>
+    </section>
+
+    <!-- ================= 截图 ================= -->
+    <section class="section wrap" id="shots" hidden>
+      <header class="section-head">
+        <span class="section-idx mono" aria-hidden="true">02</span>
+        <h2 class="section-title">
+          <span class="section-title-cn">界面截图</span>
+          <span class="section-title-en mono">INTERFACE</span>
+        </h2>
+        <span class="section-rule" aria-hidden="true"></span>
+      </header>
+      <div class="shots" id="shot-grid"></div>
+    </section>
+
+    <!-- ================= 更新日志 ================= -->
+    <section class="section wrap" id="changelog">
+      <header class="section-head">
+        <span class="section-idx mono" aria-hidden="true">03</span>
+        <h2 class="section-title">
+          <span class="section-title-cn">更新日志</span>
+          <span class="section-title-en mono">CHANGELOG</span>
+        </h2>
+        <span class="section-rule" aria-hidden="true"></span>
+      </header>
+      <div class="log" id="log-list"></div>
+    </section>
+
+    <!-- ================= 常见问题 ================= -->
+    <section class="section wrap" id="faq">
+      <header class="section-head">
+        <span class="section-idx mono" aria-hidden="true">04</span>
+        <h2 class="section-title">
+          <span class="section-title-cn">常见问题</span>
+          <span class="section-title-en mono">FAQ</span>
+        </h2>
+        <span class="section-rule" aria-hidden="true"></span>
+      </header>
+      <div class="faq" id="faq-list"></div>
+    </section>
+  </main>
+
+  <!-- ================= 页脚 ================= -->
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-mark small" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
+            <path d="M16 2.5 28 9.2v13.6L16 29.5 4 22.8V9.2z" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+            <circle cx="11.4" cy="20.6" r="2.1" fill="currentColor"/>
+            <circle cx="17.4" cy="19.2" r="2.1" fill="currentColor"/>
+            <path d="M13 11.5v9M13 11.5l6-1.4v7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span data-cfg="appName">音乐播放器</span>
+        <span class="mono footer-ver" data-cfg="version">v0.1.0</span>
+      </div>
+      <p class="disclaimer" data-cfg="disclaimer"></p>
+      <p class="footer-links">
+        <a data-cfg="repoUrl" href="#" rel="noopener">源码仓库</a>
+        <span class="sep" aria-hidden="true">/</span>
+        <a data-cfg="issuesUrl" href="#" rel="noopener">反馈问题</a>
+        <span class="sep" aria-hidden="true">/</span>
+        <span data-cfg="copyright"></span>
+      </p>
+    </div>
+    <div class="footer-line" aria-hidden="true"></div>
+  </footer>
+
+  <!-- 配置缺失时的显式报错，避免用户看到一个空白页还以为是网速问题 -->
+  <div class="config-error" id="config-error" hidden>
+    <strong class="mono">CONFIG_LOAD_FAILED</strong>
+    <p id="config-error-msg"></p>
+  </div>
+
+  <!-- 截图灯箱 -->
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="lb-close mono" type="button" aria-label="关闭">ESC ✕</button>
+    <img id="lb-img" alt="" />
+    <p class="lb-cap mono" id="lb-cap"></p>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

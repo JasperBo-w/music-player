@@ -1,0 +1,22 @@
+# ==========================================================================
+# Cloudflare Pages 项目配置
+# --------------------------------------------------------------------------
+# 这是一个「纯静态、直接上传」的 Pages 项目：没有构建步骤，wrangler 把
+# 当前目录里的文件原样传上去。所以 pages_build_output_dir 指向 "."。
+#
+# 用法（在本目录下执行）：
+#   npx wrangler pages deploy . --project-name=music-player-download
+#
+# 首次部署前先在 Cloudflare 建好项目，或让上面的命令自动创建。
+# ==========================================================================
+
+name = "music-player-download"
+compatibility_date = "2025-01-01"
+pages_build_output_dir = "."
+
+# 这个站点没有服务端逻辑，用不到 KV / D1 / R2 绑定。
+# 安装包托管在 R2 上，通过 R2 自己的公开域名（r2.dev 或自定义域名）直接下载，
+# 不经过 Pages，所以这里不需要配任何 binding。
+
+# 想强制 HTTP 跳 HTTPS，可在 Cloudflare 面板的 SSL/TLS → Edge Certificates
+# 打开 "Always Use HTTPS"，比在这里写规则更省事。
