@@ -39,8 +39,10 @@
       "preload.js",
       "package.json",
       "!**/.session.json",
-      "!**/*.log"
+      "!**/*.log",
+      "!locales/!(zh-CN|zh-TW|en-US|en-GB).pak"
     ],
+
     "extraResources": [
       {
         "from": "../ui",
@@ -51,6 +53,7 @@
         ]
       }
     ],
+    "afterPack": "build/after-pack-trim-locales.js",
     "win": {
       "target": [
         {

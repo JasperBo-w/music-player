@@ -232,9 +232,22 @@ $installer = Get-ChildItem $dist -Filter '*Setup.exe' -File -ErrorAction Silentl
                Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
 if ($installer) {
-  $mb = [Math]::Round($installer.Length / 1MB, 1)
+  $mb = [Math]::Round($installer.Length / 1MB, 2)
   Ok "安装包：$($installer.FullName)"
   Write-Line  "          大小 $mb MB"
+
+  # 体积红线检查：蓝奏云免费账号单文件上限 100 MB。
+  # 超了就上传失败，而且失败原因写在对方页面上、很容易被忽略，
+  # 所以在这里直接说清楚，别等上传时才发现。
+  if ($installer.Length -gt 100MB) {
+    Write-Line ''
+    Write-Host "  [!] 超过 100 MB —— 蓝奏云免费账号传不上去" -ForegroundColor Yellow
+    Write-Host ("      超出 {0:N2} MB" -f (($installer.Length - 100MB)/1MB)) -ForegroundColor Yellow
+    Write-Host '      语言包裁剪没生效？跑一下确认：' -ForegroundColor Yellow
+    Write-Host '         powershell -File tools\trim-locales.ps1 -DryRun' -ForegroundColor Yellow
+  } else {
+    Write-Host ("  [OK] 低于 100 MB，可以传蓝奏云（余量 {0:N2} MB）" -f ((100MB - $installer.Length)/1MB)) -ForegroundColor Green
+  }
   Write-Line ''
   Write-Line '   下一步（算校验值，填进下载页配置）：'
   Write-Line ''
