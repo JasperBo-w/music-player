@@ -93,10 +93,30 @@ if (-not (Test-Path $asar)) {
 } else {
   Pass ("app.asar {0:N1} MB" -f ((Get-Item $asar).Length / 1MB))
 
-  # 按 asar 格式读头部
-  $bytes = [System.IO.File]::ReadAllBytes($asar)
+  # 按 asar 格式读头部。
+  # 这里的失败要完整打印出来 —— PowerShell 默认会把异常消息截断，
+  # 之前就出现过"未能找到路径 C:\Windows\sys..."这种看不到真实路径的情况，
+  # 排查时等于没有信息。
+  $bytes = $null
+  try {
+    $bytes = [System.IO.File]::ReadAllBytes($asar)
+  } catch [System.IO.FileNotFoundException] {
+    Fail 'app.asar 在 Test-Path 通过之后消失了（杀毒软件？）'
+    Write-Host "        路径: $asar"
+    exit 1
+  } catch {
+    Fail '读取 app.asar 失败'
+    Write-Host '        ---- 完整异常信息 ----' -ForegroundColor Yellow
+    Write-Host "        类型: $($_.Exception.GetType().FullName)"
+    Write-Host "        消息: $($_.Exception.Message)"
+    Write-Host "        目标: $($_.TargetObject)"
+    Write-Host "        路径: $asar"
+    Write-Host '        -----------------------' -ForegroundColor Yellow
+    exit 1
+  }
+
   # 边界校验：asar 头不该超过文件本身，否则说明格式不是我们预期的
-  if ($bytes.Length -lt 16) { Fail 'app.asar 太小/格式不对'; Write-Host 'CHECK_RESULT=FAIL:1'; exit 1 }
+  if ($bytes.Length -lt 16) { Fail 'app.asar 太小/格式不对'; exit 1 }
   $headerJsonLen = [BitConverter]::ToInt32($bytes, 12)
   if ($headerJsonLen -le 0 -or (16 + $headerJsonLen) -gt $bytes.Length) {
     Fail "app.asar 头部长度异常（$headerJsonLen），无法解析"

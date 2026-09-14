@@ -1,22 +1,19 @@
 {
   "_comment": "唯一需要维护的数据文件。发新版只改这里，不要改 HTML。改完部署即可，页面所有文案/链接/版本号都从这里渲染。",
-
   "appName": "音乐播放器",
   "appNameEn": "Music Player",
   "tagline": "本地音乐播放器 · 桌面端",
   "description": "一款带 3D 粒子视觉的本地音乐播放器。支持本地曲库与自建音源接入、逐字歌词、桌面歌词窗、可视化效果自定义。播放器本体不托管任何音频内容。",
-
   "repoUrl": "https://github.com/JasperBo-w/music-player",
   "issuesUrl": "https://github.com/JasperBo-w/music-player/issues",
-
   "release": {
     "version": "0.1.0",
-    "releaseDate": "2025-01-01",
+    "releaseDate": "2026-09-14",
     "channel": "beta",
     "channelLabel": "内测版",
     "fileName": "MusicPlayer-0.1.0-Setup.exe",
-    "fileSize": "待填写",
-    "sha256": "待填写（发布时用 Get-FileHash 生成）",
+    "fileSize": "102.7 MB",
+    "sha256": "d637fc4b5c7417c4740cb2c35a45e64b980dd949534981fc9f8a6d4aa1df5592",
     "minWindows": "Windows 10 1809 (x64) 及以上",
     "notes": [
       "首个可运行版本：Electron 桌面客户端 + 3D 粒子界面",
@@ -29,15 +26,28 @@
     },
     "mirrors": []
   },
-
   "requirements": [
-    { "label": "系统", "value": "Windows 10 1809 (x64) 及以上" },
-    { "label": "显卡", "value": "支持 WebGL 2（粒子效果需要）" },
-    { "label": "内存", "value": "建议 4 GB 以上" },
-    { "label": "磁盘", "value": "约 400 MB 可用空间" },
-    { "label": "网络", "value": "在线音源与歌词需要联网" }
+    {
+      "label": "系统",
+      "value": "Windows 10 1809 (x64) 及以上"
+    },
+    {
+      "label": "显卡",
+      "value": "支持 WebGL 2（粒子效果需要）"
+    },
+    {
+      "label": "内存",
+      "value": "建议 4 GB 以上"
+    },
+    {
+      "label": "磁盘",
+      "value": "约 400 MB 可用空间"
+    },
+    {
+      "label": "网络",
+      "value": "在线音源与歌词需要联网"
+    }
   ],
-
   "features": [
     {
       "icon": "✦",
@@ -70,13 +80,11 @@
       "text": "无捆绑、无广告、无开机自启。用户数据在卸载时可选择一并清除。"
     }
   ],
-
   "screenshots": [],
-
   "changelog": [
     {
       "version": "0.1.0",
-      "date": "2025-01-01",
+      "date": "2026-09-14",
       "items": [
         "Electron 桌面客户端首个可运行版本",
         "3D 粒子背景与可视化效果系统",
@@ -85,7 +93,6 @@
       ]
     }
   ],
-
   "faq": [
     {
       "q": "这个软件能免费听全网 VIP 歌曲吗？",
@@ -112,7 +119,6 @@
       "a": "请在 GitHub 仓库提交 issue 说明版本号与文件大小，不要使用校验值对不上的安装包。"
     }
   ],
-
   "legal": {
     "disclaimer": "本软件为本地音乐播放工具，不提供、不存储、不分发任何音频内容。软件内的音源能力用于播放用户本人有权访问的内容，使用者需自行遵守所在地区法律法规及各内容平台的服务条款。",
     "copyright": "© 2025 音乐播放器"
