@@ -100,8 +100,24 @@ if ($CheckOnly) {
 if ($isAdmin) {
   Write-Host '    已是管理员，直接开始打包'
   Write-Host ''
-  & (Join-Path $root 'build-installer.ps1')
-  exit $LASTEXITCODE
+
+  # 输出同时写日志：窗口万一被关掉，结果还能查
+  $log = Join-Path $root '.logs\build-as-admin.log'
+  New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+  Write-Host "    过程日志：$log"
+  Write-Host ''
+
+  & (Join-Path $root 'build-installer.ps1') *>&1 | Tee-Object -FilePath $log
+  $code = $LASTEXITCODE
+
+  Write-Host ''
+  if ($code -eq 0) {
+    Write-Host '  [OK] 打包脚本退出码 0' -ForegroundColor Green
+  } else {
+    Write-Host "  [!] 打包脚本退出码 $code，看上面输出或日志" -ForegroundColor Yellow
+  }
+  Write-Host '  本窗口会保持打开，方便你看结果。' -ForegroundColor DarkGray
+  exit $code
 }
 
 # ---- 3. 未提权：弹 UAC 重新启动自己 ----
@@ -114,7 +130,7 @@ Write-Host ''
 $ps1 = Join-Path $root 'tools\build-as-admin.ps1'
 try {
   $proc = Start-Process -FilePath 'powershell.exe' `
-    -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ps1`"" `
+    -ArgumentList '-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ps1`"" `
     -Verb RunAs -PassThru
   Write-Host '    已在新窗口启动（管理员权限）。'
   Write-Host '    打包过程在**那个新窗口**里，本窗口可以关掉。'
