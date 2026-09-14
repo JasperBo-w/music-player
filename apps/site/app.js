@@ -115,42 +115,149 @@ function renderBindings(cfg) {
     });
   }
 
-  // 下载按钮：配置里还是占位符时，不指向坏链接，而是明确提示未发布
+  /*
+   * 下载按钮：所有关于它的决定都收敛在这里，**只写一次**。
+   *
+   * 之前踩过的坑：这里先把按钮指向 downloads.windows，下面处理镜像时又把它
+   * 改成镜像地址，结果被这段的顺序压过去 —— 表现是「配置了 primary=mirror
+   * 但主按钮仍指向 GitHub」。两个地方写同一个节点，迟早互相覆盖，
+   * 所以指向、文案、体积、禁用状态一次算完。
+   */
   const btn = document.getElementById('btn-download');
-  if (btn) {
-    if (hasDownload) {
-      btn.href = downloadUrl;
-      btn.target = '_blank';
-      btn.rel = 'noopener';
-      btn.removeAttribute('aria-disabled');
+
+  // 按钮上的小字（体积 / 状态）统一在下面的镜像逻辑里处理，
+  // 避免两处都去写同一个节点、互相覆盖。
+
+  // 备用下载线路
+  const mirrors = (get(cfg, 'release.mirrors') || []).filter((m) => m && m.url && !isPlaceholder(m.url));
+
+  /*
+   * 镜像可以升格成一个正式按钮。
+   *
+   * 什么时候需要：主下载源在国内不好用的时候（比如 GitHub Releases），
+   * 而备用源反而更快（比如蓝奏云）。这种情况下把备用放到按钮层，
+   * 只在小字里给个链接是不够的 —— 大多数人不会往下看那一行。
+   *
+   * 由配置里的 release.primary 决定：
+   *   "mirror" → 主按钮指向第一个镜像，GitHub/官方源降级为下方文字线路
+   *   其他/缺省 → 主按钮指向 downloads.windows，镜像只作为文字线路
+   *
+   * note 字段可以带上体积提示，比如「GitHub · 102.66 MB」——
+   * 备用线路往往是完全不同的下载方式，先说清楚比让人点进去才发现好。
+   */
+  const primaryIsMirror = get(cfg, 'release.primary') === 'mirror';
+  const mirrorBox = document.getElementById('mirrors');
+  const mirrorBtn = document.getElementById('btn-mirror');
+  const mainUrl = get(cfg, 'release.downloads.windows');
+
+  /*
+   * 升格逻辑只认 mirrors 里的**第一个**条目 —— 那才是"备用主源"。
+   *
+   * 坑：mirrors[0] 可能是占位符而被过滤掉（比如蓝奏云还没填），
+   * 这时 mirrors[0] 会变成原本的第二条（GitHub），结果备用按钮指向 GitHub、
+   * 和主按钮是同一个链接，等于出现两个一模一样的下载按钮。
+   * 所以要①从原始数组取第一条，②确认它没被过滤掉（即链接有效）。
+   */
+  const firstMirrorRaw = (get(cfg, 'release.mirrors') || [])[0];
+  const firstMirrorValid = Boolean(
+    firstMirrorRaw && firstMirrorRaw.url && !isPlaceholder(firstMirrorRaw.url)
+  );
+  const mirrorTakesPrimary = primaryIsMirror && firstMirrorValid;
+  const mirror = mirrorTakesPrimary ? firstMirrorRaw : null;
+
+  /*
+   * "其他线路"里要去掉已经上到按钮上的那条，以及和主按钮重复的链接 ——
+   * 同一条链接既在按钮上又在下面文字里出现，看起来像是两个不同的下载点。
+   */
+  const seen = new Set();
+  if (hasDownload) seen.add(String(mainUrl));
+  if (mirror) seen.add(String(mirror.url));
+
+  const textMirrors = mirrors.filter((m) => {
+    const u = String(m.url);
+    if (seen.has(u)) return false;
+    seen.add(u);
+    return true;
+  });
+
+  // 备用按钮：只有镜像升为主源、且被降级的官方源确实可用时才显示
+  if (mirrorBtn) {
+    if (mirrorTakesPrimary && hasDownload) {
+      mirrorBtn.hidden = false;
+      mirrorBtn.href = mainUrl;
+      mirrorBtn.target = '_blank';
+      mirrorBtn.rel = 'noopener';
+
+      const labelEl = document.getElementById('mirror-label');
+      const noteEl = document.getElementById('mirror-note');
+      if (labelEl) setText(labelEl, 'GitHub 下载');
+      if (noteEl) setText(noteEl, isPlaceholder(get(cfg, 'release.fileSize')) ? '' : get(cfg, 'release.fileSize'));
     } else {
+      mirrorBtn.hidden = true;
+      mirrorBtn.removeAttribute('href');
+    }
+  }
+
+  if (mirrorBox) {
+    mirrorBox.innerHTML = textMirrors.length
+      ? '其他线路：' +
+        textMirrors
+          .map((m) => {
+            const note = m.note ? `（${escapeHtml(m.note)}）` : '';
+            return `<a href="${escapeAttr(m.url)}" rel="noopener" target="_blank">${escapeHtml(m.label || m.url)}${note}</a>`;
+          })
+          .join('　·　')
+      : '';
+  }
+
+  /*
+   * 主按钮的最终状态。三种情况一次算完：
+   *   1. 占位符        → 禁用 + 「安装包未发布」，绝不指向坏链接
+   *   2. 镜像升为主源  → 指向镜像，文案用镜像名
+   *   3. 正常          → 指向 downloads.windows，「下载 Windows 版」
+   */
+  if (btn) {
+    const strong = btn.querySelector('strong');
+    const meta = btn.querySelector('[data-cfg="fileMeta"]');
+    const size = get(cfg, 'release.fileSize');
+    const hasSize = !isPlaceholder(size);
+
+    if (!hasDownload) {
       btn.removeAttribute('href');
       btn.setAttribute('aria-disabled', 'true');
       btn.style.opacity = '.55';
       btn.style.cursor = 'not-allowed';
-      btn.title = '安装包尚未上传：请在 site.config.json 的 release.downloads.windows 填入 R2 链接';
-      const strong = btn.querySelector('strong');
+      btn.title = '安装包尚未上传：请在 site.config.json 的 release.mirrors 或 downloads.windows 里填入下载链接';
       if (strong) setText(strong, '安装包未发布');
+      if (meta) setText(meta, '—');
+    } else if (mirrorTakesPrimary) {
+      btn.href = mirror.url;
+      btn.target = '_blank';
+      btn.rel = 'noopener';
+      btn.removeAttribute('aria-disabled');
+      btn.style.opacity = '';
+      btn.style.cursor = '';
+      btn.removeAttribute('title');
+
+      /*
+       * 文案用「<镜像名> 下载」。label 本身可能已经带了「下载」二字
+       * （比如"蓝奏云下载"），先去重再拼，否则会出现"蓝奏云下载下载"。
+       */
+      const name = (mirror.label || '镜像').replace(/\s*(下载|线路|通道)\s*$/, '').trim();
+      if (strong) setText(strong, `${name} 下载`);
+      // 镜像体积可能和官方源不同，优先用镜像自己声明的
+      if (meta) setText(meta, mirror.note || (hasSize ? size : '.exe'));
+    } else {
+      btn.href = downloadUrl;
+      btn.target = '_blank';
+      btn.rel = 'noopener';
+      btn.removeAttribute('aria-disabled');
+      btn.style.opacity = '';
+      btn.style.cursor = '';
+      btn.removeAttribute('title');
+      if (strong) setText(strong, '下载 Windows 版');
+      if (meta) setText(meta, hasSize ? `.exe · ${size}` : '.exe');
     }
-  }
-
-  // 按钮上的小字：把版本号和文件大小合并成一行元信息
-  const meta = document.querySelector('[data-cfg="fileMeta"]');
-  if (meta) {
-    const parts = ['.exe'];
-    if (!isPlaceholder(get(cfg, 'release.fileSize'))) parts.push(get(cfg, 'release.fileSize'));
-    setText(meta, parts.join(' · '));
-  }
-
-  // 备用下载线路
-  const mirrors = (get(cfg, 'release.mirrors') || []).filter((m) => m && m.url && !isPlaceholder(m.url));
-  const mirrorBox = document.getElementById('mirrors');
-  if (mirrorBox && mirrors.length) {
-    mirrorBox.innerHTML =
-      '备用线路：' +
-      mirrors
-        .map((m) => `<a href="${escapeAttr(m.url)}" rel="noopener" target="_blank">${escapeHtml(m.label || m.url)}</a>`)
-        .join('　·　');
   }
 }
 

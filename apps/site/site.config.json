@@ -24,7 +24,19 @@
     "downloads": {
       "windows": "https://github.com/JasperBo-w/music-player/releases/latest/download/MusicPlayer-Setup.exe"
     },
-    "mirrors": []
+    "mirrors": [
+      {
+        "label": "蓝奏云",
+        "url": "REPLACE-WITH-LANZOU-URL",
+        "note": "102.66 MB"
+      },
+      {
+        "label": "GitHub",
+        "url": "https://github.com/JasperBo-w/music-player/releases/latest/download/MusicPlayer-Setup.exe",
+        "note": "102.66 MB"
+      }
+    ],
+    "primary": "mirror"
   },
   "requirements": [
     {
