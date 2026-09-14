@@ -1079,8 +1079,6 @@ function drawFallbackDisc(title) {
   return ctx;
 }
 
-const QUALITY_SOURCE_LABEL = { mobile: '移动端', gateway: '网关', none: '—' };
-
 /**
  * 播放请求令牌
  *
@@ -1186,11 +1184,17 @@ async function playAt(i, dir = 'next', isSkip = false) {
   }
   state.skipFails = 0;
 
-  // 高音质拿不到时回退到标准，并明确告诉用户原因
+  /*
+   * 这里只在**确实降级**的时候提示一下。
+   *
+   * 原来每取到一次播放地址就弹一条「音质 xx · 来源 xx」，那是纯噪音：
+   *   1. 当前音质本来就一直显示在底部那个 chip 上，重复
+   *   2. 换歌、切音质、自动续播都会弹，听一张专辑能弹几十次
+   * 「来源」字段对用户也没有任何可操作性。
+   * 取流来源仍然打在控制台，需要排查时看得到。
+   */
   if (state.quality !== 128 && /需要付费|受限|会员/.test((info.failProcess || []).join(''))) {
     toast('该音质需要会员，已回退标准音质');
-  } else {
-    toast(`音质 ${QUICK_QUALITY[state.quality] || state.quality} · 来源 ${QUALITY_SOURCE_LABEL[info.source] || '未知'}`);
   }
 
   console.log(`[播放] 取到地址来源=${info.source}  ${String(info.url).split('/').slice(0, 3).join('/')}`);
