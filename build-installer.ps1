@@ -45,16 +45,36 @@ if (-not $CheckOnly) {
   Step '检查依赖'
   $builder = Join-Path $desktop 'node_modules\electron-builder'
   if (-not (Test-Path $builder)) {
-    Write-Line '   electron-builder 未安装，正在安装（首次会慢一些）...'
-    Write-Line '   注意 electron-builder 是本次新增的依赖，别用 npm ci —— 它会按旧的'
-    Write-Line '   lock 文件装，把新依赖又删掉。'
-    Push-Location $root
-    # 直接用 pnpm：它是这个工作区本来就用的包管理器
-    & pnpm install
-    $code = $LASTEXITCODE
-    Pop-Location
+    Write-Line '   安装 electron-builder（首次会慢一些）...'
+    Write-Line ''
+    Write-Line '   必须在 apps\desktop 目录里装：这个仓库不是 pnpm workspace，'
+    Write-Line '   在根目录跑 pnpm install 只会看到一个空 workspace（啥也不装），'
+    Write-Line '   这正是上一次失败的原因。'
+    Write-Line ''
+
+    # 用 Start-Process 而不是 & npm：直接调用会把 npm 的进度刷进本窗口，
+    # 而且中文在管道里容易被重新编码成乱码。让它自己输出、我们只看退出码。
+    $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
+    if (-not $npm) { $npm = (Get-Command npm -ErrorAction SilentlyContinue).Source }
+    if (-not $npm) {
+      Bad '找不到 npm，请确认 Node.js 已安装并在 PATH 里。'
+      Read-Host '  按回车关闭'
+      exit 1
+    }
+
+    $proc = Start-Process -FilePath $npm `
+      -ArgumentList 'install', '--no-audit', '--no-fund' `
+      -WorkingDirectory $desktop -PassThru -Wait
+    $code = $proc.ExitCode
+
     if ($code -ne 0 -or -not (Test-Path $builder)) {
-      Bad '依赖安装失败。手动试一次： 在项目根目录执行 pnpm install'
+      Bad "依赖安装失败（npm 退出码 $code）"
+      Write-Line ''
+      Write-Line '   手动排查：打开命令行执行'
+      Write-Line '       cd apps\desktop'
+      Write-Line '       npm install'
+      Write-Line '   如果报网络错误（公司代理、DNS），换个网络或配 npm 镜像：'
+      Write-Line '       npm config set registry https://registry.npmmirror.com'
       Read-Host '  按回车关闭'
       exit 1
     }
@@ -62,24 +82,42 @@ if (-not $CheckOnly) {
   Ok 'electron-builder 就位'
 
   $electron = Join-Path $desktop 'node_modules\electron\dist\electron.exe'
-  if (Test-Path $electron) { Ok 'electron 就位' } else { Bad 'electron 缺失，请先 pnpm install'; Read-Host '  按回车关闭'; exit 1 }
+  if (Test-Path $electron) {
+    Ok 'electron 就位'
+  } else {
+    Bad 'electron 缺失，请先在 apps\desktop 下执行 npm install'
+    Read-Host '  按回车关闭'
+    exit 1
+  }
 
   # ---- 2. 打包 ----
+  # 同样用 Start-Process：npm 是 .cmd，& 调用在子进程 stdio 受限的环境里
+  # （沙箱 / 部分安全软件）会直接失败，而且进度输出会把本窗口刷花。
   Step '开始打包（首次会下载 NSIS 工具链，几百 MB，耐心等）'
-  Push-Location $desktop
+  $script = if ($DirOnly) { 'dist:dir' } else { 'dist' }
   if ($DirOnly) {
-    Write-Line '   模式：免安装目录（dist:dir）'
-    & npm run dist:dir
+    Write-Line '   模式：免安装目录（快，用于验证打包是否正确）'
   } else {
-    Write-Line '   模式：NSIS 安装包（dist）'
-    & npm run dist
+    Write-Line '   模式：NSIS 安装包'
   }
-  $code = $LASTEXITCODE
-  Pop-Location
+  Write-Line ''
+
+  $proc = Start-Process -FilePath $npm `
+    -ArgumentList 'run', $script `
+    -WorkingDirectory $desktop -PassThru -Wait
+  $code = $proc.ExitCode
 
   if ($code -ne 0) {
-    Bad "打包失败，退出码 $code"
-    Write-Line '   常见原因：网络下载 NSIS 工具链失败（重试一次），或路径含特殊字符。'
+    Bad "打包失败（npm 退出码 $code）"
+    Write-Line ''
+    Write-Line '   常见原因：'
+    Write-Line '     · NSIS 工具链下载失败 —— 多试一次，或换个网络'
+    Write-Line '     · 杀毒软件锁住了 dist 目录 —— 关掉实时防护再试'
+    Write-Line '     · 路径里有特殊字符 —— 本项目路径正常，一般不是这个'
+    Write-Line ''
+    Write-Line '   想看详细报错就手动跑：'
+    Write-Line '       cd apps\desktop'
+    Write-Line "       npm run $script"
     Read-Host '  按回车关闭'
     exit 1
   }
